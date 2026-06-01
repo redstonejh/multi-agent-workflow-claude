@@ -33,6 +33,7 @@ SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
+DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
 RUN_DIR = ROOT / "runs" / "2026-06-01_ml-leakage-demo_81f1"
 
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
@@ -53,6 +54,13 @@ GAP_TOL               = 0.05      # overfitting gate tolerance
 SHUFFLE_TOL           = 0.05      # leakage gate tolerance
 BASELINE_ITERS        = 2000      # bootstrap/permutation iters (matches the committed run)
 BASELINE_SEED         = 0         # baseline RNG seed (matches the committed run)
+# --- the six newer validators (Phase 3.7 completion) ---
+EXPECT_HONEST_F1      = 0.759259  # F1 of the honest model on the held-out split
+EXPECT_DATA_SHA256    = "8ad4393ac0946c1e116703dca2732e11a796c6fdb0be24b74276880882fe9fb4"  # sha256 of data.csv
+EXPECT_DATA_MAJORITY  = 0.5325    # majority-class fraction in data.csv (213/400)
+EXPECT_ROBUST_MAXCORR = 0.36065   # max |feature-label corr| in data.csv (no dominance)
+EXPECT_VAR_MEAN       = 0.756667  # mean held-out acc over VARIANCE_SEEDS
+VARIANCE_SEEDS        = [1, 2, 3, 7, 11]   # seeds swept for the multi-seed variance check
 
 results: list[tuple[bool, str]] = []
 
@@ -115,8 +123,8 @@ def part_selftests() -> None:
     record(code == 0 and "4/4" in out and "ALL PASS" in out,
            f"selftest_checks.py -> exit {code}, 4/4 (want exit 0)")
     code, out, _ = run(SELFTEST_ML)
-    record(code == 0 and "8/8" in out and "ALL PASS" in out,
-           f"selftest_ml_checks.py -> exit {code}, 8/8 (want exit 0)")
+    record(code == 0 and "21/21" in out and "ALL PASS" in out,
+           f"selftest_ml_checks.py -> exit {code}, 21/21 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
@@ -197,6 +205,77 @@ def part_ml_example(tmp: Path) -> dict:
                f"ece within tolerance -> exit {code}, ece={ece.get('ece')} (want exit 0, <={ECE_MAX})")
     else:
         record(False, "ece check produced no JSON")
+
+    # --- the six newer validators (Phase 3.7 completion), exercised on a fresh
+    # honest run in its OWN dir so the claim-to-evidence arrays above stay intact ---
+    section("3b. ML example - the six newer validators")
+    nv = tmp / "validators"
+    nv.mkdir()
+    train([], nv)  # fresh honest run -> nv/test_*.txt + nv/metrics.json (seed 7)
+    nv_preds, nv_labels = nv / "test_preds.txt", nv / "test_labels.txt"
+    nv_probs, nv_metrics = nv / "test_probs.txt", nv / "metrics.json"
+
+    code, met = run_json(ML_CHECKS, "metrics", "--preds-file", nv_preds, "--labels-file", nv_labels)
+    if met:
+        close(met.get("f1"), EXPECT_HONEST_F1, "metric_validator: F1")
+        record(code == 0 and met.get("passed") is True,
+               f"metric_validator: acc {met.get('accuracy')} > base {met.get('majority_base_rate')} "
+               f"-> exit {code} (want 0)")
+    else:
+        record(False, "metrics check produced no JSON")
+
+    # calibration_checker reuses ece (already asserted above); re-run for completeness
+    code, cal = run_json(ML_CHECKS, "ece", "--probs-file", nv_probs, "--labels-file", nv_labels,
+                         "--bins", 10, "--tol", ECE_MAX)
+    record(bool(cal) and code == 0 and cal.get("passed") is True,
+           f"calibration_checker (ece): ece={cal and cal.get('ece')} -> exit {code} (want 0)")
+
+    code, dq = run_json(ML_CHECKS, "dataquality", "--data", DATA)
+    if dq:
+        close(dq.get("majority_fraction"), EXPECT_DATA_MAJORITY, "data_quality_auditor: majority fraction")
+        record(code == 0 and dq.get("duplicate_rows") == 0 and dq.get("missing_cells") == 0,
+               f"data_quality_auditor: dupes={dq.get('duplicate_rows')}, "
+               f"missing={dq.get('missing_cells')} -> exit {code} (want 0)")
+    else:
+        record(False, "dataquality check produced no JSON")
+
+    code, rob = run_json(ML_CHECKS, "robustness", "--data", DATA)
+    if rob:
+        close(rob.get("max_abs_corr"), EXPECT_ROBUST_MAXCORR, "robustness_tester: max |corr|")
+        record(code == 0 and rob.get("passed") is True,
+               f"robustness_tester: dominant={rob.get('dominant_feature')} "
+               f"|corr|={rob.get('max_abs_corr')} -> exit {code} (want 0)")
+    else:
+        record(False, "robustness check produced no JSON")
+
+    code, rep = run_json(ML_CHECKS, "repro", "--data", DATA, "--metrics", nv_metrics,
+                         "--expect-sha", EXPECT_DATA_SHA256)
+    if rep:
+        record(rep.get("data_sha256") == EXPECT_DATA_SHA256,
+               f"reproducibility_checker: data sha256 == pinned ({EXPECT_DATA_SHA256[:12]}...)")
+        record(code == 0 and rep.get("has_seed") is True and rep.get("seed") == 7,
+               f"reproducibility_checker: seed={rep.get('seed')}, "
+               f"sha_matches={rep.get('sha_matches')} -> exit {code} (want 0)")
+    else:
+        record(False, "repro check produced no JSON")
+
+    # variance_auditor: sweep seeds into a separate dir, test stability + real gain
+    var_art = tmp / "variance"
+    var_art.mkdir()
+    accs = []
+    for s in VARIANCE_SEEDS:
+        r = train(["--seed", str(s)], var_art)
+        if r:
+            accs.append(r.get("test_acc"))
+    code, var = run_json(ML_CHECKS, "variance", *[str(a) for a in accs],
+                         "--baseline", EXPECT_CHANCE_REAL, "--max-std", "0.05")
+    if var:
+        close(var.get("mean"), EXPECT_VAR_MEAN, "variance_auditor: mean over seeds")
+        record(code == 0 and var.get("passed") is True,
+               f"variance_auditor: mean {var.get('mean')} std {var.get('std')} "
+               f"gain {var.get('gain_over_baseline')} -> exit {code} (want 0)")
+    else:
+        record(False, "variance check produced no JSON")
 
     # hand the freshly-produced arrays to the claim-to-evidence stage
     return {"preds": preds.read_text(encoding="utf-8").split(),

@@ -8,12 +8,16 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > minimal version now runs** — Phases 1–3 of [`docs/08-build-strategy.md`](docs/08-build-strategy.md).
 > A small roster of subagents, the `/maw` conductor skill, and deterministic helper
 > tools are implemented and tested end to end (see the [worked example](examples/README.md)).
-> **A verified slice of the ML validation pack (Phase 3.7) now works too** — the
-> leakage / overfitting / baseline / calibration checks, three validator agents, an
-> `/ml-experiment` skill, and a committed worked example where a planted data leak
-> is caught (NO-SHIP) and fixed (SHIP). The code pack and the rest of the ML roster
-> remain design-only. See [What works today](#what-works-today-vs-whats-still-design)
-> below for the honest line.
+> **The full ML validation pack (Phase 3.7) now works too** — all **nine validator
+> agents** and their deterministic `ml_checks.py` checks (leakage, overfitting,
+> baseline, metrics, calibration, variance, reproducibility, data-quality,
+> robustness), an `/ml-experiment` skill that gates a run on all nine, and a
+> committed worked example where a planted data leak is caught (NO-SHIP) and fixed
+> (SHIP). Every check is self-tested green-on-clean / red-on-bad and the whole thing
+> is pinned by a self-validation harness (`selftest_all.py`, **PASS 42/42** — raw
+> output in [`selftest_output.txt`](selftest_output.txt)). The code pack and a few
+> deeper checks (CV-fold stability, the full robustness perturbation suite) remain
+> design-only. See [What works today](#what-works-today-vs-whats-still-design) below.
 
 ---
 
@@ -152,7 +156,7 @@ python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 **Self-test the ML checks** (every check verified green-on-clean / red-on-bad):
 
 ```bash
-uv run python maw-tools/selftest_ml_checks.py   # -> 8/8 assertions pass
+uv run python maw-tools/selftest_ml_checks.py   # -> 21/21 assertions pass
 ```
 
 ### Self-validation (run the framework against itself)
@@ -161,16 +165,19 @@ One command runs everything end-to-end and asserts **values, not just exit codes
 so a silent drift in the model, the example, or the committed write-up turns it red:
 
 ```bash
-uv run python maw-tools/selftest_all.py   # -> PASS 31/31 assertions held, exit 0
+uv run python maw-tools/selftest_all.py   # -> PASS 42/42 assertions held, exit 0
 ```
 
 It guarantees, in one pass:
-- both per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py` 8/8);
+- both per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py` 21/21);
 - the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
 - the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
   with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
   train ≈ 0.743` (seed 7) with the gap, baseline (gain ≈ 0.242, CI excludes 0) and
   calibration (ECE ≈ 0.064) gates passing;
+- **all nine validators exercised** on the example artifacts, pinning their values —
+  F1 ≈ 0.759, data sha256, class balance 0.5325, multi-seed mean ≈ 0.757 (variance
+  gate), and the feature-dominance max `|corr|` ≈ 0.361 (robustness);
 - **claim-to-evidence (dogfooding):** the numbers the committed run folder
   ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
   claims are recomputed fresh and asserted to still match — the metrics JSON, the
@@ -208,40 +215,49 @@ and is marked as such:
   known-good/known-bad fixtures so the gate logic can't silently regress).
 - A verified [end-to-end example](examples/README.md): four subagents, hand-off
   files, a passing refine loop, and a SHIP verdict.
-- A **verified slice of the ML validation pack (Phase 3.7,
-  [`docs/06`](docs/06-ml-validation.md))**:
-  - `maw-tools/ml_checks.py` — deterministic, pure-stdlib ML checks: `gap`
-    (train-test gap), `shuffle` (the shuffled-label leakage control), `baseline`
-    (model vs. majority class with a bootstrap-CI / permutation significance test),
-    and `ece` (calibration error). Each prints JSON with a `passed` field and exits
-    0/1, so the gates run on the exit code.
-  - `maw-tools/selftest_ml_checks.py` — asserts every check goes **green on a
-    known-clean fixture and red on a known-bad one** (8/8 assertions), so the
-    checks can't silently regress.
-  - Three validator agents — `leakage_auditor`, `overfitting_checker`,
-    `baseline_enforcer` (cheap models; each runs its tool first, then interprets).
+- The **full ML validation pack (Phase 3.7,
+  [`docs/06`](docs/06-ml-validation.md)) — all nine validators**:
+  - `maw-tools/ml_checks.py` — nine deterministic, pure-stdlib checks, each JSON
+    out with a `passed` field and exit 0/1 so gates run on the exit code:
+    `gap` (train-test gap), `shuffle` (shuffled-label leakage control), `baseline`
+    (model vs. majority class with a bootstrap-CI + permutation significance test),
+    `metrics` (confusion matrix + precision/recall/F1 + the accuracy-on-imbalanced
+    flag), `ece` (calibration error), `variance` (multi-seed mean/std/CI; fails if a
+    gain is smaller than the seed-to-seed std), `repro` (sha256 of the dataset +
+    asserts a seed was captured), `dataquality` (class balance + duplicate rows +
+    missing/NaN scan), `robustness` (feature-dominance proxy — a feature whose
+    `|corr|` with the label dominates is a shortcut/leak).
+  - `maw-tools/selftest_ml_checks.py` — every check asserted **green-on-clean /
+    red-on-bad** (**21/21**), so a check can't silently regress.
+  - **Nine validator agents** (cheap haiku models; each runs its tool first, then
+    interprets): `leakage_auditor`, `overfitting_checker`, `baseline_enforcer`,
+    `metric_validator`, `calibration_checker`, `variance_auditor`,
+    `reproducibility_checker`, `data_quality_auditor`, `robustness_tester`.
   - The **`/ml-experiment` skill** — wires the validators into the refine loop
-    against the hard-gate ML rubric, and the acceptance gate **re-runs the checks
-    against the on-disk artifacts** before SHIP.
+    against a **hard-gate rubric with all nine gates**, and the acceptance gate
+    **re-runs the checks against the on-disk artifacts** before SHIP.
   - A committed [worked example](examples/ml_experiment/README.md): a tiny dataset
     + training script with a **planted data-leakage bug**. The run
     ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
     shows the shuffled-label control catching the leak (**NO-SHIP**, leaky control
     accuracy 1.000 vs 0.575 chance), the fix, and the honest model shipping
-    (**SHIP**, 0.783 test vs 0.542 baseline, gain CI [0.133, 0.350], ECE 0.064) —
-    verified by an independent acceptance gate that re-ran every check itself.
+    (**SHIP**, 0.783 test vs 0.542 baseline, gain CI [0.133, 0.350], F1 0.759,
+    ECE 0.064) — verified by an independent acceptance gate that re-ran every check.
 - A **whole-framework self-validation harness**
   ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs both per-tool
-  self-tests, reproduces both worked examples, and **dogfoods the committed run
-  folder** — recomputing the numbers it claims and asserting they still match
-  (values, not just exit codes). 31/31, exit 0.
+  self-tests, reproduces both worked examples, exercises **all nine validators** on
+  the example artifacts (pinning F1, the data hash, class balance, multi-seed mean,
+  feature-dominance), and **dogfoods the committed run folder** — recomputing the
+  numbers it claims and asserting they still match (values, not just exit codes).
+  **PASS 42/42, exit 0** — raw output committed in
+  [`selftest_output.txt`](selftest_output.txt).
 
 **Still design-only (Phase 4+):**
-- The **rest of the ML validation roster** ([`docs/06`](docs/06-ml-validation.md)):
-  `metric_validator`, `variance_auditor`, `robustness_tester`, `calibration_checker`
-  (an `ece` *check* exists; no standalone agent yet), `data_quality_auditor`,
-  `reproducibility_checker` — and checks beyond the four above (CV-fold stability,
-  drift/robustness, multi-seed variance). `# MAW-TODO`
+- **Deeper ML checks not yet built** ([`docs/06`](docs/06-ml-validation.md)):
+  CV-fold stability (a `cv` check), the **full robustness suite** beyond the
+  feature-dominance proxy (input-perturbation stability, counterfactual /
+  distribution-shift / recent-period probes), and temporal/group leakage splitters.
+  `# MAW-TODO`
 - The full **code & debugging roster** ([`docs/07`](docs/07-code-and-debugging.md)):
   `repro_engineer`, `bug_hunter`, `debugger`, `dep_mapper`, etc., plus `deps.md`
   tooling. `# MAW-TODO`

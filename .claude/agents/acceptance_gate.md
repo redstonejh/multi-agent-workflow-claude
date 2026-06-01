@@ -32,17 +32,26 @@ gate on *their* exit codes — do not take a validator's "PASS" on faith. The
 numbers, not the narrative, decide SHIP. Minimum:
 
 ```bash
-uv run python maw-tools/ml_checks.py shuffle  --shuffled-acc <from control run> --chance <base rate> --tol 0.05
-uv run python maw-tools/ml_checks.py gap      --train <train_acc> --test <test_acc> --tol 0.05
-uv run python maw-tools/ml_checks.py baseline --preds-file <artifacts/test_preds.txt> --labels-file <artifacts/test_labels.txt>
-uv run python maw-tools/ml_checks.py ece      --probs-file <artifacts/test_probs.txt> --labels-file <artifacts/test_labels.txt>   # if probabilities are used
+uv run python maw-tools/ml_checks.py shuffle     --shuffled-acc <from control run> --chance <base rate> --tol 0.05
+uv run python maw-tools/ml_checks.py gap         --train <train_acc> --test <test_acc> --tol 0.05
+uv run python maw-tools/ml_checks.py baseline    --preds-file <artifacts/test_preds.txt> --labels-file <artifacts/test_labels.txt>
+uv run python maw-tools/ml_checks.py metrics     --preds-file <artifacts/test_preds.txt> --labels-file <artifacts/test_labels.txt>
+uv run python maw-tools/ml_checks.py ece         --probs-file <artifacts/test_probs.txt> --labels-file <artifacts/test_labels.txt>   # if probabilities are used
+uv run python maw-tools/ml_checks.py variance    <per-seed accs...> --baseline <base rate>           # if a multi-seed sweep was run
+uv run python maw-tools/ml_checks.py dataquality --data <data.csv>
+uv run python maw-tools/ml_checks.py robustness  --data <data.csv>
+uv run python maw-tools/ml_checks.py repro       --data <data.csv> --metrics <artifacts/metrics.json>
 ```
 
-To reproduce the leakage control yourself, run the training script's
-`--shuffle-labels` mode and feed its accuracy to `ml_checks.py shuffle`. **Any
-check exiting non-zero is a NO-SHIP**, regardless of what the final report claims.
-A near-perfect metric with a tiny train-test gap is the *leakage signature* — be
-more suspicious, not less.
+Run **every gate the run claimed to pass** (the nine map 1:1 to the validators) and
+gate on their exit codes. To reproduce the leakage control yourself, run the
+training script's `--shuffle-labels` mode and feed its accuracy to
+`ml_checks.py shuffle`. **Any applicable check exiting non-zero is a NO-SHIP**,
+regardless of what the final report claims. A near-perfect metric with a tiny
+train-test gap is the *leakage signature* — be more suspicious, not less. If a gate
+is genuinely N/A (e.g. `ece` with no probabilities), say so; don't fake a pass —
+and don't let the report claim a check (e.g. a full perturbation suite) that the
+tools don't actually implement.
 
 ## Output
 
