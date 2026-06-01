@@ -1,0 +1,16 @@
+{
+  "mode": "real",
+  "inject_leak": true,
+  "features": [
+    "x1",
+    "x2",
+    "x3",
+    "leak"
+  ],
+  "n_train": 280,
+  "n_test": 120,
+  "train_acc": 1.0,
+  "test_acc": 1.0,
+  "chance_level": 0.541667,
+  "seed": 7
+}

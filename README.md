@@ -8,8 +8,12 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > minimal version now runs** — Phases 1–3 of [`docs/08-build-strategy.md`](docs/08-build-strategy.md).
 > A small roster of subagents, the `/maw` conductor skill, and deterministic helper
 > tools are implemented and tested end to end (see the [worked example](examples/README.md)).
-> The full domain rosters (ML and code packs, Phase 4) are still design-only. See
-> [What works today](#what-works-today-vs-whats-still-design) below for the honest line.
+> **A verified slice of the ML validation pack (Phase 3.7) now works too** — the
+> leakage / overfitting / baseline / calibration checks, three validator agents, an
+> `/ml-experiment` skill, and a committed worked example where a planted data leak
+> is caught (NO-SHIP) and fixed (SHIP). The code pack and the rest of the ML roster
+> remain design-only. See [What works today](#what-works-today-vs-whats-still-design)
+> below for the honest line.
 
 ---
 
@@ -145,6 +149,12 @@ known-bad fixtures, so a regression in the gate logic turns this red):
 python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 ```
 
+**Self-test the ML checks** (every check verified green-on-clean / red-on-bad):
+
+```bash
+uv run python maw-tools/selftest_ml_checks.py   # -> 8/8 assertions pass
+```
+
 > **Why no pytest?** The example deliberately uses a plain stdlib test runner so the
 > repo has zero install steps and the `checks.py test` gate works on any machine.
 > pytest is a fine choice for a larger suite — if you add it (`uv run pip install
@@ -171,18 +181,42 @@ Honest scope — this repo backs a résumé claim, so only the lines below actua
   known-good/known-bad fixtures so the gate logic can't silently regress).
 - A verified [end-to-end example](examples/README.md): four subagents, hand-off
   files, a passing refine loop, and a SHIP verdict.
+- A **verified slice of the ML validation pack (Phase 3.7,
+  [`docs/06`](docs/06-ml-validation.md))**:
+  - `maw-tools/ml_checks.py` — deterministic, pure-stdlib ML checks: `gap`
+    (train-test gap), `shuffle` (the shuffled-label leakage control), `baseline`
+    (model vs. majority class with a bootstrap-CI / permutation significance test),
+    and `ece` (calibration error). Each prints JSON with a `passed` field and exits
+    0/1, so the gates run on the exit code.
+  - `maw-tools/selftest_ml_checks.py` — asserts every check goes **green on a
+    known-clean fixture and red on a known-bad one** (8/8 assertions), so the
+    checks can't silently regress.
+  - Three validator agents — `leakage_auditor`, `overfitting_checker`,
+    `baseline_enforcer` (cheap models; each runs its tool first, then interprets).
+  - The **`/ml-experiment` skill** — wires the validators into the refine loop
+    against the hard-gate ML rubric, and the acceptance gate **re-runs the checks
+    against the on-disk artifacts** before SHIP.
+  - A committed [worked example](examples/ml_experiment/README.md): a tiny dataset
+    + training script with a **planted data-leakage bug**. The run
+    ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
+    shows the shuffled-label control catching the leak (**NO-SHIP**, leaky control
+    accuracy 1.000 vs 0.575 chance), the fix, and the honest model shipping
+    (**SHIP**, 0.783 test vs 0.542 baseline, gain CI [0.133, 0.350], ECE 0.064) —
+    verified by an independent acceptance gate that re-ran every check itself.
 
 **Still design-only (Phase 4+):**
-- The full **ML validation roster** ([`docs/06`](docs/06-ml-validation.md)):
-  `leakage_auditor`, `overfitting_checker`, `baseline_enforcer`, etc., and their
-  deterministic check scripts (only a single `gap` demo exists so far). `# MAW-TODO`
+- The **rest of the ML validation roster** ([`docs/06`](docs/06-ml-validation.md)):
+  `metric_validator`, `variance_auditor`, `robustness_tester`, `calibration_checker`
+  (an `ece` *check* exists; no standalone agent yet), `data_quality_auditor`,
+  `reproducibility_checker` — and checks beyond the four above (CV-fold stability,
+  drift/robustness, multi-seed variance). `# MAW-TODO`
 - The full **code & debugging roster** ([`docs/07`](docs/07-code-and-debugging.md)):
   `repro_engineer`, `bug_hunter`, `debugger`, `dep_mapper`, etc., plus `deps.md`
   tooling. `# MAW-TODO`
 - Dependency-aware **parallel scheduling** and the `route` / `debate` patterns —
   the current conductor runs the team sequentially. `# MAW-TODO`
-- Workflow skills (`ml-experiment`, `debug`) and Phase-5 polish (path-resolution
-  for `maw-tools/`, retention/compaction). `# MAW-TODO`
+- The `debug` workflow skill (the `ml-experiment` skill now works — see above) and
+  Phase-5 polish (path-resolution for `maw-tools/`, retention/compaction). `# MAW-TODO`
 
 ## Design documentation
 

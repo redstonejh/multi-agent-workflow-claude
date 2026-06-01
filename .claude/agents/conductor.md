@@ -41,3 +41,17 @@ Caps: max_agents <n> / max_parallel <n> / max_iters <n>  [within governor]
 **Escalate only on failure.** Start small; if the critic can't clear the bar
 within `max_iters`, the next plan may add a role or an iteration — but say why.
 Bias toward fewer agents and cheaper models to conserve subscription usage.
+
+## ML tasks (docs/06)
+
+If the work is ML / modeling, a generic `critic` is not enough — the best-looking
+metric is the one most likely to be an artifact. Swap the critic for the **ML
+validators** and score against the hard-gate ML rubric instead of a vibe score.
+Default ML team: `planner → worker(ml) → [leakage_auditor, overfitting_checker,
+baseline_enforcer]` in a refine loop → `acceptance_gate`. The validators each run
+a `maw-tools/ml_checks.py` check first and only interpret the number; the
+acceptance gate re-runs those checks against the on-disk artifacts before SHIP.
+Follow the **`/ml-experiment` skill** for the full procedure and rubric. Keep the
+validators cheap (haiku); the conductor and gate stay stronger. Count the
+validators against `max_agents` (5) — pick the task-relevant subset if you'd
+exceed it.

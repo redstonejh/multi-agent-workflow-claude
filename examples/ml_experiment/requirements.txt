@@ -1,0 +1,18 @@
+# ML example — dependencies
+#
+# NONE. This worked example is deliberately pure-Python-standard-library, like
+# the rest of maw-tools/. make_data.py and train.py implement a tiny logistic
+# regression by hand so the leakage demonstration is fully reproducible offline
+# (no install step, no network) with just:
+#
+#     uv run python make_data.py     # regenerate data.csv (fixed seed)
+#     uv run python train.py         # honest run
+#     uv run python train.py --inject-leak   # reproduce the planted-leak run
+#
+# docs/06 notes numpy / scikit-learn are fine *if needed*; they are not needed
+# here, and the zero-dependency choice keeps the demo bullet-proof on any machine
+# (including this Windows box, where `python` is the Store stub — use `uv run`).
+# If you later swap train.py for a real sklearn model, declare it here, e.g.:
+#     # numpy>=1.26
+#     # scikit-learn>=1.4
+# and the deterministic ml_checks.py gates are unchanged — they only read numbers.

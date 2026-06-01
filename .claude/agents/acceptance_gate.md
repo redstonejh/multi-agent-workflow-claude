@@ -24,6 +24,26 @@ word for anything — verify against the recorded evidence.
    Run a smoke test via `python maw-tools/checks.py test --cmd "<cmd>"` (or
    `uv run`), or execute the deliverable directly. Check the output is sane.
 
+## ML runs — re-run the checks yourself (docs/06)
+
+For an ML task, the validators' reports are **not** sufficient evidence: re-run
+the deterministic checks against the **on-disk artifacts** the worker produced and
+gate on *their* exit codes — do not take a validator's "PASS" on faith. The
+numbers, not the narrative, decide SHIP. Minimum:
+
+```bash
+uv run python maw-tools/ml_checks.py shuffle  --shuffled-acc <from control run> --chance <base rate> --tol 0.05
+uv run python maw-tools/ml_checks.py gap      --train <train_acc> --test <test_acc> --tol 0.05
+uv run python maw-tools/ml_checks.py baseline --preds-file <artifacts/test_preds.txt> --labels-file <artifacts/test_labels.txt>
+uv run python maw-tools/ml_checks.py ece      --probs-file <artifacts/test_probs.txt> --labels-file <artifacts/test_labels.txt>   # if probabilities are used
+```
+
+To reproduce the leakage control yourself, run the training script's
+`--shuffle-labels` mode and feed its accuracy to `ml_checks.py shuffle`. **Any
+check exiting non-zero is a NO-SHIP**, regardless of what the final report claims.
+A near-perfect metric with a tiny train-test gap is the *leakage signature* — be
+more suspicious, not less.
+
 ## Output
 
 - Write **`artifacts/acceptance.md`**: verdict + reasons, one bullet per check.

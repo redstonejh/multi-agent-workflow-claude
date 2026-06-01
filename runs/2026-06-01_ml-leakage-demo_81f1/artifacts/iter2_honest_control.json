@@ -1,0 +1,16 @@
+{
+  "mode": "shuffled-label-control",
+  "inject_leak": false,
+  "features": [
+    "x1",
+    "x2",
+    "x3"
+  ],
+  "n_train": 280,
+  "n_test": 120,
+  "train_acc": 0.557143,
+  "test_acc": 0.45,
+  "chance_level": 0.575,
+  "seed": 7,
+  "shuffled_label_acc": 0.45
+}
