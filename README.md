@@ -190,7 +190,8 @@ drift is caught with both the expected and the real value printed.
 
 ## What works today vs. what's still design
 
-Honest scope — this repo backs a résumé claim, so only the lines below actually run:
+Honest scope — only the lines below actually run; everything else is still design,
+and is marked as such:
 
 **Works now (Phases 1–3 of [doc 08](docs/08-build-strategy.md)):**
 - A 5-role roster of subagents in [`.claude/agents/`](.claude/agents/): `conductor`,
@@ -229,6 +230,11 @@ Honest scope — this repo backs a résumé claim, so only the lines below actua
     accuracy 1.000 vs 0.575 chance), the fix, and the honest model shipping
     (**SHIP**, 0.783 test vs 0.542 baseline, gain CI [0.133, 0.350], ECE 0.064) —
     verified by an independent acceptance gate that re-ran every check itself.
+- A **whole-framework self-validation harness**
+  ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs both per-tool
+  self-tests, reproduces both worked examples, and **dogfoods the committed run
+  folder** — recomputing the numbers it claims and asserting they still match
+  (values, not just exit codes). 31/31, exit 0.
 
 **Still design-only (Phase 4+):**
 - The **rest of the ML validation roster** ([`docs/06`](docs/06-ml-validation.md)):
