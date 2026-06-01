@@ -155,6 +155,32 @@ python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 uv run python maw-tools/selftest_ml_checks.py   # -> 8/8 assertions pass
 ```
 
+### Self-validation (run the framework against itself)
+
+One command runs everything end-to-end and asserts **values, not just exit codes** —
+so a silent drift in the model, the example, or the committed write-up turns it red:
+
+```bash
+uv run python maw-tools/selftest_all.py   # -> PASS 31/31 assertions held, exit 0
+```
+
+It guarantees, in one pass:
+- both per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py` 8/8);
+- the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
+- the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
+  with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
+  train ≈ 0.743` (seed 7) with the gap, baseline (gain ≈ 0.242, CI excludes 0) and
+  calibration (ECE ≈ 0.064) gates passing;
+- **claim-to-evidence (dogfooding):** the numbers the committed run folder
+  ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
+  claims are recomputed fresh and asserted to still match — the metrics JSON, the
+  prose in `run.md`, and the on-disk prediction arrays (reproduced bit-for-bit).
+
+Every expected value is a named constant at the top of
+[`selftest_all.py`](maw-tools/selftest_all.py) with a one-line comment, so a
+legitimate model/seed change has exactly one place to update — and an *illegitimate*
+drift is caught with both the expected and the real value printed.
+
 > **Why no pytest?** The example deliberately uses a plain stdlib test runner so the
 > repo has zero install steps and the `checks.py test` gate works on any machine.
 > pytest is a fine choice for a larger suite — if you add it (`uv run pip install
