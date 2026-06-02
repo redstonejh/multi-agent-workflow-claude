@@ -33,6 +33,7 @@ CODE_CHECKS = MAWTOOLS / "code_checks.py"
 SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
 SELFTEST_CODE = MAWTOOLS / "selftest_code_checks.py"
+SELFTEST_SCAFFOLD = MAWTOOLS / "selftest_scaffold.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
 DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
@@ -132,6 +133,9 @@ def part_selftests() -> None:
     code, out, _ = run(SELFTEST_CODE)
     record(code == 0 and "10/10" in out and "ALL PASS" in out,
            f"selftest_code_checks.py -> exit {code}, 10/10 (want exit 0)")
+    code, out, _ = run(SELFTEST_SCAFFOLD)
+    record(code == 0 and "16/16" in out and "ALL PASS" in out,
+           f"selftest_scaffold.py -> exit {code}, 16/16 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
