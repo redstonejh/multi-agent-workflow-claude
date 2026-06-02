@@ -97,6 +97,16 @@ for an intentionally fixed-width email template) rather than fabricating a pass.
        --agents conductor,planner,ui_builder,a11y_auditor,markup_validator,perf_budgeter,responsive_checker,ux_critic,acceptance_gate --json
    ```
    Write the plan + the rubric you'll enforce into `run.md`'s "Conductor plan".
+   **Pre-execution plan gate (before delegating):** emit the plan as
+   `artifacts/plan_v1.json` (`task_type: "frontend"`, caps, justified roles) and run
+   the hard gate — for `task_type: "frontend"` it enforces `a11y_auditor` +
+   `change_verifier` (the pack's headline mode is *verifying a requested change*; a
+   pure greenfield build with nothing to verify can tag the plan `generic` instead):
+   ```bash
+   uv run python maw-tools/plan_check.py --plan <run_dir>/artifacts/plan_v1.json
+   ```
+   Add `plan_reviewer` (advisory). If either flags, re-plan (cap 2 revisions) and
+   re-run; record each plan + verdict in `run.md`. Only proceed on exit 0.
 3. **Delegate with hand-offs** (scaffold `handoff` helper at every boundary):
    planner → ui_builder (writes `index.html`/`style.css`) → each auditor runs its
    tool and writes its `*_report.md` + a `memory.md` finding.

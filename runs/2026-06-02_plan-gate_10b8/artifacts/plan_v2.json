@@ -1,0 +1,13 @@
+{
+  "_note": "Conductor's SECOND plan, after plan_check rejected v1. The leakage_auditor is added (and justified). plan_check now passes, so execution may begin.",
+  "task_type": "ml",
+  "caps": {"max_agents": 5, "max_parallel": 3, "max_iters": 3},
+  "parallel": 2,
+  "roles": [
+    {"name": "planner", "justification": "decompose the modeling task and write the rubric"},
+    {"name": "worker", "justification": "run the experiment; write metrics.json + prediction arrays"},
+    {"name": "leakage_auditor", "justification": "shuffled-label control — the gate that catches data leakage"},
+    {"name": "baseline_enforcer", "justification": "gain over the majority baseline with a bootstrap CI"},
+    {"name": "acceptance_gate", "justification": "independent terminal re-run of the ml_checks on disk"}
+  ]
+}

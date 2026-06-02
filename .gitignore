@@ -13,6 +13,8 @@ runs/*
 !runs/2026-06-02_frontend-demo_c53d/
 #   the change-verification + style-drift demo (requested change provably applied)
 !runs/2026-06-02_change-verify_6cc9/
+#   the pre-execution plan-gate demo (bad plan rejected, re-planned, accepted)
+!runs/2026-06-02_plan-gate_10b8/
 
 # The ML example's working artifacts are regenerable (uv run python train.py);
 # the committed evidence lives in the run folder above. data.csv IS committed

@@ -1,0 +1,4 @@
+# baseline_enforcer — local notes (run 2026-06-02_plan-gate_10b8)
+
+Your scratchpad for this run. Read this on start ("your notes so far"); append a
+short structured note on finish (what you concluded, decisions, open threads).

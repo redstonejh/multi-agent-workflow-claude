@@ -25,7 +25,7 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > a "make the button blue #1a73e8" change proven applied, with no-op + drift fixtures
 > caught as NO-SHIP). Every check is
 > self-tested green-on-good / red-on-bad and the whole thing is pinned by a
-> self-validation harness (`selftest_all.py`, **PASS 74/74** — raw output in
+> self-validation harness (`selftest_all.py`, **PASS 79/79** — raw output in
 > [`selftest_output.txt`](selftest_output.txt)). A few deeper pieces (CV-fold
 > stability, the full robustness perturbation suite, the dependency-DAG scheduler,
 > front-end visual/pixel regression) remain design-only. See [What works today](#what-works-today-vs-whats-still-design).
@@ -50,6 +50,11 @@ your task
 ┌─────────────┐   reads a roster of available specialist roles, then
 │  CONDUCTOR  │   plans the team: which roles, how many, which pattern,
 └─────────────┘   with what quality bar — staying within safety caps
+   │
+   ▼
+┌─────────────┐   an INDEPENDENT pre-execution check on the PLAN itself:
+│  PLAN GATE  │   plan_check (hard) + plan_reviewer (advisory) — roster,
+└─────────────┘   caps, required validators per task type.  re-plan if flagged
    │
    ▼
 ┌──────────────────────────────────────────────┐
@@ -79,7 +84,7 @@ result + a readable run folder documenting how it got there
 - **Composable orchestration patterns.** `pipeline`, `orchestrate` (lead + workers), `parallel` (fan-out + reduce), `route` (classify + specialist), and `debate` — mixed and nested as a task requires.
 - **Recursive quality loop (`refine`).** A generate → evaluate → revise loop that wraps *any* pattern and repeats until output meets an explicit, rubric-based bar. This is the core mechanism for compounding quality rather than relying on a single lucky pass.
 - **Markdown memory & automatic hand-offs.** Each agent keeps local notes; the team shares a journal; and at every step the framework auto-writes a structured hand-off note and passes it to the next agent — so a multi-agent chain runs from one instruction with no manual prompt-threading. Every run produces a human-readable folder you can open and audit.
-- **Independent acceptance gate.** A terminal verification step run by a *different* agent than produced the work, checking task conformance, claim-to-evidence consistency (anti-overclaiming), and end-to-end soundness — with an optional human sign-off for high-stakes runs.
+- **Two independent gates, front and back.** A **pre-execution plan gate** (`plan_check`, deterministic, + `plan_reviewer`, advisory) vets the *team plan* before any agent runs — roster validity, governor caps, and the required validators for the task type (e.g. an ML plan with no `leakage_auditor` is rejected) — and the conductor re-plans if flagged. Symmetrically, an **independent acceptance gate** is a terminal step run by a *different* agent than produced the work, checking task conformance, claim-to-evidence consistency (anti-overclaiming), and end-to-end soundness — with an optional human sign-off for high-stakes runs.
 - **Dependency-aware parallelism.** Work runs concurrently only when it's truly independent (scheduled against a dependency graph); discovered hidden couplings feed back so the system stops parallelizing things that secretly conflict.
 - **Domain validation packs.** Specialized agents + checks for domains where naive results mislead (below).
 
@@ -173,6 +178,7 @@ python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 uv run python maw-tools/selftest_ml_checks.py     # -> 21/21 assertions pass
 uv run python maw-tools/selftest_code_checks.py   # -> 10/10 assertions pass
 uv run python maw-tools/selftest_web_checks.py    # -> 27/27 assertions pass
+uv run python maw-tools/selftest_plan_check.py   # -> 16/16 assertions pass
 ```
 
 ### Self-validation (run the framework against itself)
@@ -181,12 +187,13 @@ One command runs everything end-to-end and asserts **values, not just exit codes
 so a silent drift in the model, the examples, or the committed write-ups turns it red:
 
 ```bash
-uv run python maw-tools/selftest_all.py   # -> PASS 74/74 assertions held, exit 0
+uv run python maw-tools/selftest_all.py   # -> PASS 79/79 assertions held, exit 0
 ```
 
 It guarantees, in one pass:
 - all per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py`
-  21/21, `selftest_code_checks.py` 10/10, `selftest_web_checks.py` 27/27);
+  21/21, `selftest_code_checks.py` 10/10, `selftest_web_checks.py` 27/27,
+  `selftest_plan_check.py` 16/16);
 - the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
 - the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
   with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
@@ -208,6 +215,11 @@ It guarantees, in one pass:
   the no-op** fixture, and `tokens` is **RED on the off-palette drift** fixture
   (#2b7de9) — a requested change can't be claimed without proof, and a fix can't
   smuggle in style drift;
+- **the plan gate exercised** on `runs/2026-06-02_plan-gate_10b8` — the conductor's
+  first ML plan (missing `leakage_auditor`) is **REJECTED by `plan_check` (exit 1),
+  the violation naming the ml required-role rule**, and the corrected plan (with the
+  role added) is **ACCEPTED (exit 0)** — a structurally-bad team is caught before any
+  agent runs;
 - **claim-to-evidence (dogfooding):** the numbers the committed ML run folder
   ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
   claims are recomputed fresh and asserted to still match — the metrics JSON, the
@@ -338,13 +350,34 @@ and is marked as such:
     shows the gates biting on a **no-op** fixture (edit claimed but not applied →
     `changed` exit 1) and a **drift** fixture (off-palette `#2b7de9` → `tokens`
     exit 1) → **NO-SHIP**.
+- The **pre-execution plan gate — `plan_check` + `plan_reviewer`** (symmetric to the
+  acceptance gate, but for team selection):
+  - `maw-tools/plan_check.py` — deterministic, pure-stdlib, JSON out + exit 0/1:
+    given the conductor's structured plan (roles + task-type tag + caps) it asserts
+    every role exists in the roster (derived from `.claude/agents/`), the governor
+    caps hold, `acceptance_gate` is present, there are no duplicate/unjustified roles,
+    and the **required-role rules per task type fire** (ml → `leakage_auditor` +
+    `baseline_enforcer`; frontend → `a11y_auditor` + `change_verifier`; code →
+    `code_reviewer` + `dep_mapper`) — exiting non-zero with the specific violation.
+    The rule table lives in one place (`GOVERNOR` + `REQUIRED_ROLES`).
+  - `maw-tools/selftest_plan_check.py` — every rule asserted green-on-valid /
+    red-on-bad, each red naming its specific violation (**16/16**).
+  - `plan_reviewer` agent (independent, opus-tier — the conductor's tier): reviews
+    objective + plan for coverage gaps, redundancy, and bar-appropriateness →
+    **APPROVE / REVISE** (advisory; the hard gate is `plan_check`). Wired into the
+    `/maw` flow: conductor proposes → plan gate → re-plan if flagged (capped at 2
+    revisions) → only then execute.
+  - A committed [worked demo](runs/2026-06-02_plan-gate_10b8/run.md): the conductor's
+    first ML plan **omits the `leakage_auditor`** → `plan_check` exit 1 → conductor
+    re-plans to add it → second plan exit 0 → execute.
 - A **whole-framework self-validation harness**
   ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs all per-tool
   self-tests, reproduces all three worked examples, exercises the nine ML validators,
-  the code-work pack, and the **front-end pack** on the example artifacts, and
+  the code-work pack, the **front-end pack**, and the **pre-execution plan gate** on
+  the example artifacts, and
   **dogfoods the committed ML run folder** — recomputing the numbers it claims and
   asserting they still match (values, not just exit codes; incl. the pinned contrast
-  ratios, a11y before/after counts, and demo page byte budget). **PASS 74/74, exit 0**
+  ratios, a11y before/after counts, and demo page byte budget). **PASS 79/79, exit 0**
   — raw output committed in [`selftest_output.txt`](selftest_output.txt).
 
 **Still design-only (Phase 4+):**

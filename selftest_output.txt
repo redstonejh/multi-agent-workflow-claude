@@ -1,45 +1,28 @@
-### FINAL VERIFICATION â€” front-end change-verification + style-drift extension
-### Tue Jun  2 10:35:58 PDT 2026
+### FINAL VERIFICATION â€” pre-execution plan gate (plan_check + plan_reviewer)
+### Tue Jun  2 10:47:03 PDT 2026
 
-===== uv run python maw-tools/selftest_web_checks.py =====
-web_checks.py contrast:
-  [ok] low-contrast pair ratio=2.6405 -> exit 1 (want 2.6405, fail)
-  [ok] high-contrast pair passes AA normal: exit 0, passed=True (want passed=True)
-  [ok] borderline pair ratio=3.5449 fails normal -> exit 1
-  [ok] ...same pair passes the large-text threshold (3.0): exit 0, passed=True (want passed=True)
-web_checks.py a11y:
-  [ok] clean page: 0 violations: exit 0, passed=True (want passed=True)
-  [ok] defective page: 5 violations -> exit 1 (want 5)
-web_checks.py budget:
-  [ok] under byte budget passes: exit 0, passed=True (want passed=True)
-  [ok] over byte budget fails: exit 1, passed=False (want passed=False)
-web_checks.py links:
-  [ok] all internal refs resolve: exit 0, passed=True (want passed=True)
-  [ok] broken #fragment + missing asset flagged: exit 1, passed=False (want passed=False)
-web_checks.py markup:
-  [ok] well-formed markup passes: exit 0, passed=True (want passed=True)
-  [ok] duplicate id + mismatched end tag flagged: exit 1, passed=False (want passed=False)
-web_checks.py responsive:
-  [ok] viewport meta + @media present: exit 0, passed=True (want passed=True)
-  [ok] missing viewport meta fails: exit 1, passed=False (want passed=False)
-web_checks.py style:
-  [ok] style resolves .btn background = #e0e0e0 (want #e0e0e0)
-  [ok] style --expect matches the resolved value: exit 0, passed=True (want passed=True)
-  [ok] style --expect mismatch fails: exit 1, passed=False (want passed=False)
-  [ok] style cascade: last declaration wins = #1a73e8 (want #1a73e8)
-web_checks.py changed:
-  [ok] REAL change (#e0e0e0 -> #1a73e8) passes: exit 0, passed=True (want passed=True)
-  [ok] NO-OP (value unchanged) fails: exit 1, passed=False (want passed=False)
-  [ok] WRONG-TARGET (changed but != expected) fails: exit 1, passed=False (want passed=False)
-  [ok] file mode: differs from snapshot passes: exit 0, passed=True (want passed=True)
-  [ok] file mode: byte-identical to snapshot fails: exit 1, passed=False (want passed=False)
-web_checks.py tokens:
-  [ok] on-palette CSS passes (no drift): exit 0, passed=True (want passed=True)
-  [ok] off-palette color flagged as drift: exit 1, passed=False (want passed=False)
-  [ok] off-token spacing flagged as drift: exit 1, passed=False (want passed=False)
-  [ok] off-token font flagged as drift: exit 1, passed=False (want passed=False)
+===== uv run python maw-tools/selftest_plan_check.py =====
+plan_check.py — valid plans pass:
+  [ok] ml plan with both required validators: exit 0, passed=True (want pass)
+  [ok] frontend plan with a11y + change_verifier: exit 0, passed=True (want pass)
+  [ok] code plan with code_reviewer + dep_mapper: exit 0, passed=True (want pass)
+  [ok] generic plan: exit 0, passed=True (want pass)
+plan_check.py — required-role rules fire:
+  [ok] ml plan missing leakage_auditor: exit 1, violation~'leakage_auditor' (want fail naming it)
+  [ok] ml plan missing baseline_enforcer: exit 1, violation~'baseline_enforcer' (want fail naming it)
+  [ok] frontend plan missing change_verifier: exit 1, violation~'change_verifier' (want fail naming it)
+  [ok] code plan missing dep_mapper: exit 1, violation~'dep_mapper' (want fail naming it)
+plan_check.py — structural rules fire:
+  [ok] missing acceptance_gate: exit 1, violation~'acceptance_gate' (want fail naming it)
+  [ok] duplicate role: exit 1, violation~'duplicate' (want fail naming it)
+  [ok] unjustified (bare-string) role: exit 1, violation~'justification' (want fail naming it)
+  [ok] role not in roster: exit 1, violation~'roster' (want fail naming it)
+  [ok] too many roles (governor max_agents): exit 1, violation~'max_agents' (want fail naming it)
+  [ok] declared cap exceeds governor: exit 1, violation~'exceeds governor' (want fail naming it)
+  [ok] planned parallel exceeds cap: exit 1, violation~'parallel' (want fail naming it)
+  [ok] unknown task type: exit 1, violation~'unknown task_type' (want fail naming it)
 
-ALL PASS: 27/27 assertions held
+ALL PASS: 16/16 assertions held
 
 ===== uv run python maw-tools/selftest_all.py =====
 ======================================================================
@@ -51,6 +34,7 @@ selftest_all.py - framework self-validation (asserts VALUES)
   [ok] selftest_ml_checks.py -> exit 0, 21/21 (want exit 0)
   [ok] selftest_code_checks.py -> exit 0, 10/10 (want exit 0)
   [ok] selftest_web_checks.py -> exit 0, 27/27 (want exit 0)
+  [ok] selftest_plan_check.py -> exit 0, 16/16 (want exit 0)
 
 2. Code example (examples/sample_app) through checks.py test
   [ok] test_textutil.py via gate -> gate-exit 0, passed=True, inner-exit 0 (want passed=true, exit 0)
@@ -136,6 +120,12 @@ selftest_all.py - framework self-validation (asserts VALUES)
   [ok] tokens AFTER (on palette) -> exit 0, drift=0 (want 0/0)
   [ok] tokens DRIFT (off palette) -> exit 1, drift=1 (want 1/>=1)
 
+7. Pre-execution plan gate (examples plan-gate run) - v1 RED -> v2 GREEN
+  [ok] plan v1 (ML, no leakage_auditor) -> exit 1, violations=1 (want 1/REJECT naming it)
+  [ok] plan v1 rejection is the ml required-role rule firing on leakage_auditor
+  [ok] plan v2 (corrected) -> exit 0, violations=0 (want 0/ACCEPT)
+  [ok] plan v2 now includes leakage_auditor
+
 ======================================================================
-PASS 74/74 assertions held
+PASS 79/79 assertions held
 ======================================================================

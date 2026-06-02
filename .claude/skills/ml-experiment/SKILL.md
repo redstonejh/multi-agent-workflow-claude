@@ -88,6 +88,14 @@ when no probabilities are used) rather than fabricating a pass.
        --agents conductor,planner,worker,leakage_auditor,overfitting_checker,baseline_enforcer,acceptance_gate --json
    ```
    Write the plan + the rubric you'll enforce into `run.md`'s "Conductor plan".
+   **Pre-execution plan gate (before delegating):** emit the plan as
+   `artifacts/plan_v1.json` (`task_type: "ml"`, caps, justified roles) and run the
+   hard gate — for ML it enforces `leakage_auditor` + `baseline_enforcer`:
+   ```bash
+   uv run python maw-tools/plan_check.py --plan <run_dir>/artifacts/plan_v1.json
+   ```
+   Add `plan_reviewer` (advisory). If either flags, re-plan (cap 2 revisions) and
+   re-run; record each plan + verdict in `run.md`. Only proceed on exit 0.
 3. **Delegate with hand-offs** (scaffold `handoff` helper at every boundary):
    planner → worker (runs the experiment, writes `artifacts/` incl. `metrics.json`,
    `test_preds.txt`, `test_labels.txt`, `test_probs.txt`) → each validator runs its

@@ -1,0 +1,12 @@
+{
+  "_note": "Conductor's FIRST plan. ML task, but it omits the leakage_auditor — exactly the role that catches the kind of bug ML runs die on. plan_check must reject this.",
+  "task_type": "ml",
+  "caps": {"max_agents": 5, "max_parallel": 3, "max_iters": 3},
+  "parallel": 2,
+  "roles": [
+    {"name": "planner", "justification": "decompose the modeling task and write the rubric"},
+    {"name": "worker", "justification": "run the experiment; write metrics.json + prediction arrays"},
+    {"name": "baseline_enforcer", "justification": "gain over the majority baseline with a bootstrap CI"},
+    {"name": "acceptance_gate", "justification": "independent terminal re-run of the ml_checks on disk"}
+  ]
+}

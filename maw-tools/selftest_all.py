@@ -31,10 +31,12 @@ CHECKS = MAWTOOLS / "checks.py"
 ML_CHECKS = MAWTOOLS / "ml_checks.py"
 CODE_CHECKS = MAWTOOLS / "code_checks.py"
 WEB_CHECKS = MAWTOOLS / "web_checks.py"
+PLAN_CHECK = MAWTOOLS / "plan_check.py"
 SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
 SELFTEST_CODE = MAWTOOLS / "selftest_code_checks.py"
 SELFTEST_WEB = MAWTOOLS / "selftest_web_checks.py"
+SELFTEST_PLAN = MAWTOOLS / "selftest_plan_check.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
 DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
@@ -66,6 +68,12 @@ CHG_NOOP = CHG_DEMO / "noop" / "button.css"     # edit claimed but not applied
 CHG_DRIFT = CHG_DEMO / "drift" / "button.css"   # changed, but off-palette color
 EXPECT_STYLE_BEFORE = "#e0e0e0"   # .btn background before the requested change
 EXPECT_STYLE_AFTER  = "#1a73e8"   # .btn background after ("make it blue #1a73e8")
+
+# --- Pre-execution plan gate demo (runs/.../plan-gate): v1 rejected -> v2 accepted ---
+PLAN_RUN = ROOT / "runs" / "2026-06-02_plan-gate_10b8"
+PLAN_V1 = PLAN_RUN / "artifacts" / "plan_v1.json"   # ML plan missing leakage_auditor
+PLAN_V2 = PLAN_RUN / "artifacts" / "plan_v2.json"   # corrected plan
+PLAN_MISSING_ROLE = "leakage_auditor"               # the required role v1 omits
 
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
 # --- changes, this block is the ONE place to update. Each has a one-line why.   ---
@@ -162,6 +170,9 @@ def part_selftests() -> None:
     code, out, _ = run(SELFTEST_WEB)
     record(code == 0 and "27/27" in out and "ALL PASS" in out,
            f"selftest_web_checks.py -> exit {code}, 27/27 (want exit 0)")
+    code, out, _ = run(SELFTEST_PLAN)
+    record(code == 0 and "16/16" in out and "ALL PASS" in out,
+           f"selftest_plan_check.py -> exit {code}, 16/16 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
@@ -554,6 +565,39 @@ def part_change_verify() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 7. Pre-execution plan gate: the conductor's bad plan is caught before running
+# --------------------------------------------------------------------------- #
+
+def part_plan_gate() -> None:
+    section("7. Pre-execution plan gate (examples plan-gate run) - v1 RED -> v2 GREEN")
+    if not PLAN_V1.is_file() or not PLAN_V2.is_file():
+        record(False, f"plan-gate demo missing: {PLAN_RUN}")
+        return
+
+    # v1: an ML plan that omits the leakage_auditor must be REJECTED, naming the role
+    code, data = run_json(PLAN_CHECK, "--plan", PLAN_V1)
+    viol = " ".join(data.get("violations", [])) if data else ""
+    record(code == 1 and bool(data) and data.get("passed") is False
+           and PLAN_MISSING_ROLE in viol,
+           f"plan v1 (ML, no {PLAN_MISSING_ROLE}) -> exit {code}, "
+           f"violations={data and data.get('violation_count')} (want 1/REJECT naming it)")
+    # the required-role rule must be the thing that fired
+    record(bool(data) and any(PLAN_MISSING_ROLE in v and "requires role" in v
+                              for v in (data.get("violations") or [])),
+           f"plan v1 rejection is the ml required-role rule firing on {PLAN_MISSING_ROLE}")
+
+    # v2: the corrected plan (leakage_auditor added) must be ACCEPTED
+    code, data = run_json(PLAN_CHECK, "--plan", PLAN_V2)
+    record(code == 0 and bool(data) and data.get("passed") is True
+           and data.get("violation_count") == 0,
+           f"plan v2 (corrected) -> exit {code}, "
+           f"violations={data and data.get('violation_count')} (want 0/ACCEPT)")
+    # and v2 actually contains the previously-missing role
+    record(bool(data) and PLAN_MISSING_ROLE in (data.get("roles") or []),
+           f"plan v2 now includes {PLAN_MISSING_ROLE}")
+
+
+# --------------------------------------------------------------------------- #
 
 def main() -> int:
     print("=" * 70)
@@ -571,6 +615,7 @@ def main() -> int:
             record(False, "ML example did not produce arrays - skipped claim-to-evidence")
         part_frontend_pack()
         part_change_verify()
+        part_plan_gate()
 
     passed = sum(1 for ok, _ in results if ok)
     total = len(results)
