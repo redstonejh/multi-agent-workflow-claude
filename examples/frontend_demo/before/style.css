@@ -1,0 +1,11 @@
+/* DEFECT 1: low-contrast button — #9aa0a6 text on #ffffff is ~2.64:1,
+   below the WCAG AA 4.5 threshold. The contrast check computes this exactly. */
+.btn {
+  color: #9aa0a6;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  padding: 0.6rem 1.2rem;
+}
+
+body { font-family: sans-serif; }
+/* (no responsive breakpoint either) */

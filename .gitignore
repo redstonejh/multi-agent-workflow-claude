@@ -9,6 +9,8 @@ runs/*
 #   (docs/07). They demonstrate the gates genuinely firing.
 !runs/2026-06-01_ml-leakage-demo_81f1/
 !runs/2026-06-02_coupling-demo_1e1e/
+#   the front-end pack demo (low-contrast / a11y / budget defects -> fixed green)
+!runs/2026-06-02_frontend-demo_c53d/
 
 # The ML example's working artifacts are regenerable (uv run python train.py);
 # the committed evidence lives in the run folder above. data.csv IS committed

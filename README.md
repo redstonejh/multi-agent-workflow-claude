@@ -17,12 +17,15 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > the `code_checks.py` AST tools (`refs` blast-radius, `syntax`, `test`, `dupes`),
 > the inline `# MAW-DEP` + central `deps.md` hidden-dependency annotator and the
 > bug/RCA documentation system, with a committed coupling demo (a hidden precondition
-> + planted bug reproduced, traced, fixed, and annotated). Every check is self-tested
-> green-on-good / red-on-bad and the whole thing is pinned by a self-validation
-> harness (`selftest_all.py`, **PASS 53/53** — raw output in
+> + planted bug reproduced, traced, fixed, and annotated). **A front-end / UI pack
+> now works too** — six computed gates (`web_checks.py`: contrast, a11y, budget,
+> links, markup, responsive), six roster agents, a `/frontend` skill, and a committed
+> demo where six planted defects are each caught then fixed green. Every check is
+> self-tested green-on-good / red-on-bad and the whole thing is pinned by a
+> self-validation harness (`selftest_all.py`, **PASS 68/68** — raw output in
 > [`selftest_output.txt`](selftest_output.txt)). A few deeper pieces (CV-fold
-> stability, the full robustness perturbation suite, the dependency-DAG scheduler)
-> remain design-only. See [What works today](#what-works-today-vs-whats-still-design).
+> stability, the full robustness perturbation suite, the dependency-DAG scheduler,
+> front-end visual/pixel regression) remain design-only. See [What works today](#what-works-today-vs-whats-still-design).
 
 ---
 
@@ -84,6 +87,9 @@ A generic "looks good" critic isn't enough for machine learning — the best-loo
 
 ### Code & debugging
 A methodology pack for working on real codebases: reproduce-first bug finding, structured bug reports, a hypothesis-driven debugging loop (bisection, delta-debugging), written **root-cause analyses** (not just patches), fix + permanent regression test, a disciplined comment policy (explain *why*, never restate *what*), and — notably — a convention for capturing **hidden dependencies / spaghetti coupling** both inline (a greppable marker right above the line) and in a central, queryable dependency map that also makes parallelization safe. See [`docs/07-code-and-debugging.md`](docs/07-code-and-debugging.md).
+
+### Front-end / UI
+"Looks good to me" is exactly what ships inaccessible, broken, bloated pages. This pack makes the front-end bar a set of **deterministic, computed gates** — pure stdlib (`html.parser`, `re`), no browser, no npm — run by specialized auditors: **contrast** (the real WCAG 2.x ratio, pass ≥ 4.5 / 3.0 large), **a11y** (alt-less images, unlabeled controls, skipped heading levels, missing `lang`/`<title>`), **budget** (page bytes + element/request counts), **links** (every internal anchor/asset resolves), **markup** (unclosed tags, duplicate ids), and **responsive** (viewport meta + `@media` presence). A `ux_critic` adds an *advisory* aesthetic read — explicitly **not** a hard gate. A page only ships once it clears every deterministic gate *and* an independent acceptance gate re-runs them on the files on disk. True visual/pixel-regression ("does it render right in a browser") needs a real browser and is `# MAW-TODO`. Run it with `/frontend <task>`; see the worked demo in [`examples/frontend_demo/`](examples/frontend_demo/).
 
 ## How you'd use it
 
@@ -163,6 +169,7 @@ python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 ```bash
 uv run python maw-tools/selftest_ml_checks.py     # -> 21/21 assertions pass
 uv run python maw-tools/selftest_code_checks.py   # -> 10/10 assertions pass
+uv run python maw-tools/selftest_web_checks.py    # -> 14/14 assertions pass
 ```
 
 ### Self-validation (run the framework against itself)
@@ -171,12 +178,12 @@ One command runs everything end-to-end and asserts **values, not just exit codes
 so a silent drift in the model, the examples, or the committed write-ups turns it red:
 
 ```bash
-uv run python maw-tools/selftest_all.py   # -> PASS 53/53 assertions held, exit 0
+uv run python maw-tools/selftest_all.py   # -> PASS 68/68 assertions held, exit 0
 ```
 
 It guarantees, in one pass:
 - all per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py`
-  21/21, `selftest_code_checks.py` 10/10);
+  21/21, `selftest_code_checks.py` 10/10, `selftest_web_checks.py` 14/14);
 - the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
 - the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
   with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
@@ -189,6 +196,10 @@ It guarantees, in one pass:
   is **RED before the fix and GREEN after** (`[3, 1, 3, 1, 2]` → `[1, 2, 3]`), `refs`
   finds the **4** call sites of the coupled symbol, and the inline `# MAW-DEP[D01]`
   markers + the `deps.md` entry + the BUG/RCA files all exist where claimed;
+- **the front-end pack exercised** on `examples/frontend_demo` — the planted defects
+  fire and clear: contrast **2.64:1 → 6.87:1**, a11y **3 → 0** violations, the
+  over-budget page **4742 B** (fails) vs the fixed **1838 B** (within the 3000 B
+  budget), with `links` and `responsive` RED before / GREEN after;
 - **claim-to-evidence (dogfooding):** the numbers the committed ML run folder
   ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
   claims are recomputed fresh and asserted to still match — the metrics JSON, the
@@ -280,13 +291,38 @@ and is marked as such:
     writes the [RCA](bugs/RCA-BUG-002-unsorted-dedupe.md), fixes it with a regression
     test (`[1, 2, 3]`), and ships on an **independent code review** that re-ran every
     check itself.
+- The **front-end / UI pack — six checks + six agents + the `/frontend` skill**:
+  - `maw-tools/web_checks.py` — six deterministic, pure-stdlib (`html.parser`, `re`)
+    checks, JSON out + exit 0/1: `contrast` (the exact WCAG 2.x ratio, pass ≥ 4.5 /
+    3.0 large), `a11y` (img-without-alt, unlabeled controls, skipped heading levels,
+    missing `<html lang>`, missing `<title>`), `budget` (total bytes incl. local
+    assets + element/request counts), `links` (every internal anchor/asset resolves),
+    `markup` (unclosed/mismatched tags + duplicate ids), `responsive` (viewport meta
+    + `@media` presence).
+  - `maw-tools/selftest_web_checks.py` — every subcommand asserted green-on-good /
+    red-on-bad incl. the pinned contrast math (**14/14**).
+  - **Six roster agents** (auditors on haiku; each runs its tool first, then
+    interprets): `ui_builder`, `a11y_auditor`, `responsive_checker`, `perf_budgeter`,
+    `markup_validator`, and `ux_critic` (whose aesthetic read is **advisory, not a
+    gate**).
+  - The **`/frontend` skill** — wires the auditors into the refine loop against a
+    **hard-gate rubric** (contrast/a11y/links/markup/budget/responsive), and the
+    acceptance gate **re-runs the checks against the on-disk files** before SHIP.
+  - A committed [worked demo](examples/frontend_demo/README.md): a signup page with
+    **six planted defects** (low-contrast button **2.64:1**, alt-less image, skipped
+    heading, missing viewport, broken `#anchor`, **4742 B** over-budget inline blob).
+    The run ([`runs/2026-06-02_frontend-demo_c53d/`](runs/2026-06-02_frontend-demo_c53d/))
+    shows every gate firing on the defective page and clearing on the fix (a11y 3 → 0,
+    contrast 2.64:1 → 6.87:1, **1838 B** within budget) — verified by an independent
+    acceptance gate that re-ran every check.
 - A **whole-framework self-validation harness**
   ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs all per-tool
-  self-tests, reproduces all three worked examples, exercises the nine ML validators
-  and the code-work pack on the example artifacts, and **dogfoods the committed ML
-  run folder** — recomputing the numbers it claims and asserting they still match
-  (values, not just exit codes). **PASS 53/53, exit 0** — raw output committed in
-  [`selftest_output.txt`](selftest_output.txt).
+  self-tests, reproduces all three worked examples, exercises the nine ML validators,
+  the code-work pack, and the **front-end pack** on the example artifacts, and
+  **dogfoods the committed ML run folder** — recomputing the numbers it claims and
+  asserting they still match (values, not just exit codes; incl. the pinned contrast
+  ratios, a11y before/after counts, and demo page byte budget). **PASS 68/68, exit 0**
+  — raw output committed in [`selftest_output.txt`](selftest_output.txt).
 
 **Still design-only (Phase 4+):**
 - **Deeper ML checks not yet built** ([`docs/06`](docs/06-ml-validation.md)):
@@ -301,6 +337,12 @@ and is marked as such:
   near-duplicate detection in `dupes`, are not built. `# MAW-TODO`
 - The `route` / `debate` patterns — the current conductor runs the team sequentially.
   `# MAW-TODO`
+- **Front-end visual / aesthetic layer** ([front-end pack](examples/frontend_demo/README.md)):
+  the `web_checks.py` gates are source-level and computed. **Visual / pixel-level
+  regression** ("does the page actually render and lay out correctly in a real
+  browser") needs the Chrome connector or a headless-browser dep and is **not built**;
+  `ux_critic` only gives an *advisory* aesthetic read. The `responsive` check verifies
+  viewport/`@media` *presence*, not that the layout actually reflows. `# MAW-TODO`
 - The `debug` workflow skill (the `ml-experiment` skill now works — see above) and
   Phase-5 polish (path-resolution for `maw-tools/`, retention/compaction). `# MAW-TODO`
 

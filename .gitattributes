@@ -1,0 +1,4 @@
+# Keep the front-end demo fixtures byte-stable across platforms so the pinned
+# page-byte budget in maw-tools/selftest_all.py reproduces regardless of the
+# checkout's autocrlf setting. (The byte count is a pinned assertion.)
+examples/frontend_demo/** text eol=lf

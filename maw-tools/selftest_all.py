@@ -30,15 +30,32 @@ MAWTOOLS = ROOT / "maw-tools"
 CHECKS = MAWTOOLS / "checks.py"
 ML_CHECKS = MAWTOOLS / "ml_checks.py"
 CODE_CHECKS = MAWTOOLS / "code_checks.py"
+WEB_CHECKS = MAWTOOLS / "web_checks.py"
 SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
 SELFTEST_CODE = MAWTOOLS / "selftest_code_checks.py"
+SELFTEST_WEB = MAWTOOLS / "selftest_web_checks.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
 DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
 DEMO = ROOT / "examples" / "coupling_demo"          # code-work pack demo
 EXPECT_DEDUPE_REFS = 4                               # refs sites for dedupe_orders
 RUN_DIR = ROOT / "runs" / "2026-06-01_ml-leakage-demo_81f1"
+
+# --- Front-end pack demo (examples/frontend_demo): before -> after. The byte    ---
+# --- counts are pinned, so .gitattributes forces LF for that dir (no CRLF drift)---
+FE_DEMO = ROOT / "examples" / "frontend_demo"
+FE_BEFORE = FE_DEMO / "before" / "index.html"
+FE_BEFORE_CSS = FE_DEMO / "before" / "style.css"
+FE_AFTER = FE_DEMO / "index.html"
+FE_AFTER_CSS = FE_DEMO / "style.css"
+EXPECT_CONTRAST_BAD   = 2.6405   # WCAG ratio of #9aa0a6 text on #ffffff (fails 4.5)
+EXPECT_CONTRAST_FIXED = 6.8747   # WCAG ratio of #ffffff text on #1558b0 (passes)
+EXPECT_A11Y_BEFORE    = 3        # img-alt + control-label + heading-skip
+EXPECT_A11Y_AFTER     = 0        # all fixed
+EXPECT_BYTES_BEFORE   = 4742     # over-budget (inline blob) — fails the 3000 budget
+EXPECT_BYTES_AFTER    = 1838     # under the 3000-byte budget after the fix
+FE_BUDGET             = 3000     # the page byte budget the demo is checked against
 
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
 # --- changes, this block is the ONE place to update. Each has a one-line why.   ---
@@ -132,6 +149,9 @@ def part_selftests() -> None:
     code, out, _ = run(SELFTEST_CODE)
     record(code == 0 and "10/10" in out and "ALL PASS" in out,
            f"selftest_code_checks.py -> exit {code}, 10/10 (want exit 0)")
+    code, out, _ = run(SELFTEST_WEB)
+    record(code == 0 and "14/14" in out and "ALL PASS" in out,
+           f"selftest_web_checks.py -> exit {code}, 14/14 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
@@ -414,6 +434,71 @@ def part_claim_to_evidence(fresh: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 5. Front-end pack: the planted demo goes from RED (defects) to GREEN (fixed)
+# --------------------------------------------------------------------------- #
+
+def part_frontend_pack() -> None:
+    section("5. Front-end pack (examples/frontend_demo) - before RED -> after GREEN")
+    if not FE_BEFORE.is_file() or not FE_AFTER.is_file():
+        record(False, f"frontend demo missing: {FE_DEMO}")
+        return
+
+    # contrast: the planted low-contrast pair is a fixed WCAG number; the fix clears it
+    code, data = run_json(WEB_CHECKS, "contrast", "--fg", "#9aa0a6", "--bg", "#ffffff")
+    if data:
+        close(data.get("ratio"), EXPECT_CONTRAST_BAD, "contrast bad pair (#9aa0a6/#fff)")
+        record(code == 1 and data.get("passed") is False,
+               f"contrast bad pair fails AA -> exit {code} (want 1)")
+    else:
+        record(False, "contrast bad pair produced no JSON")
+    code, data = run_json(WEB_CHECKS, "contrast", "--fg", "#ffffff", "--bg", "#1558b0")
+    if data:
+        close(data.get("ratio"), EXPECT_CONTRAST_FIXED, "contrast fixed pair (#fff/#1558b0)")
+        record(code == 0 and data.get("passed") is True,
+               f"contrast fixed pair passes AA -> exit {code} (want 0)")
+    else:
+        record(False, "contrast fixed pair produced no JSON")
+
+    # a11y: violation count before vs after the fix
+    code, data = run_json(WEB_CHECKS, "a11y", "--html", FE_BEFORE)
+    record(bool(data) and code == 1 and data.get("violation_count") == EXPECT_A11Y_BEFORE,
+           f"a11y BEFORE: {data and data.get('violation_count')} violations -> exit {code} "
+           f"(want {EXPECT_A11Y_BEFORE}, fail)")
+    code, data = run_json(WEB_CHECKS, "a11y", "--html", FE_AFTER)
+    record(bool(data) and code == 0 and data.get("violation_count") == EXPECT_A11Y_AFTER,
+           f"a11y AFTER: {data and data.get('violation_count')} violations -> exit {code} "
+           f"(want {EXPECT_A11Y_AFTER}, pass)")
+
+    # budget: the over-budget inline blob fails; the fixed page fits. Byte counts pinned.
+    code, data = run_json(WEB_CHECKS, "budget", "--html", FE_BEFORE, "--max-bytes", FE_BUDGET)
+    if data:
+        record(data.get("total_bytes") == EXPECT_BYTES_BEFORE,
+               f"budget BEFORE total_bytes={data.get('total_bytes')} (want {EXPECT_BYTES_BEFORE})")
+        record(code == 1 and data.get("passed") is False,
+               f"budget BEFORE over {FE_BUDGET}B -> exit {code} (want 1)")
+    else:
+        record(False, "budget BEFORE produced no JSON")
+    code, data = run_json(WEB_CHECKS, "budget", "--html", FE_AFTER, "--max-bytes", FE_BUDGET)
+    if data:
+        record(data.get("total_bytes") == EXPECT_BYTES_AFTER,
+               f"budget AFTER total_bytes={data.get('total_bytes')} (want {EXPECT_BYTES_AFTER})")
+        record(code == 0 and data.get("passed") is True,
+               f"budget AFTER within {FE_BUDGET}B -> exit {code} (want 0)")
+    else:
+        record(False, "budget AFTER produced no JSON")
+
+    # links + responsive: defective page fails each gate, fixed page clears them
+    code, _ = run_json(WEB_CHECKS, "links", "--html", FE_BEFORE)
+    record(code == 1, f"links BEFORE (broken #anchor) -> exit {code} (want 1)")
+    code, _ = run_json(WEB_CHECKS, "links", "--html", FE_AFTER)
+    record(code == 0, f"links AFTER (all resolve) -> exit {code} (want 0)")
+    code, _ = run_json(WEB_CHECKS, "responsive", "--html", FE_BEFORE, "--css", FE_BEFORE_CSS)
+    record(code == 1, f"responsive BEFORE (no viewport) -> exit {code} (want 1)")
+    code, _ = run_json(WEB_CHECKS, "responsive", "--html", FE_AFTER, "--css", FE_AFTER_CSS)
+    record(code == 0, f"responsive AFTER (viewport + @media) -> exit {code} (want 0)")
+
+
+# --------------------------------------------------------------------------- #
 
 def main() -> int:
     print("=" * 70)
@@ -429,6 +514,7 @@ def main() -> int:
             part_claim_to_evidence(fresh)
         else:
             record(False, "ML example did not produce arrays - skipped claim-to-evidence")
+        part_frontend_pack()
 
     passed = sum(1 for ok, _ in results if ok)
     total = len(results)

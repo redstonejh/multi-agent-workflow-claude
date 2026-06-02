@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme — Sign up</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <img src="assets/logo.svg" alt="Acme logo" width="48" height="48">
+    <nav><a href="#main">Skip to form</a></nav>
+  </header>
+
+  <main id="main">
+    <h1>Create your Acme account</h1>
+    <h2>It takes less than a minute</h2>
+
+    <form action="/signup" method="post">
+      <label for="email">Email address</label>
+      <input type="email" id="email" name="email" autocomplete="email">
+
+      <button type="submit" class="btn">Sign up</button>
+    </form>
+  </main>
+
+  <footer>
+    <p>Already have an account? <a href="#main">Back to top</a></p>
+  </footer>
+</body>
+</html>
