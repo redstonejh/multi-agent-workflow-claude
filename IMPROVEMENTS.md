@@ -51,3 +51,34 @@ All three checks held:
   `.git` dir below the dotted root still skipped (files_scanned=1, not 2). No weakening found.
 - End-to-end soundness: `uv run python maw-tools/selftest_code_checks.py` -> ALL PASS 12/12;
   `uv run python maw-tools/selftest_all.py` -> PASS 54/54 assertions held.
+
+## Cycle 3 — code_checks `refs` undercounts: misses global/nonlocal declarations
+**What:** `cmd_refs` walks the AST matching `ast.Name`/`ast.Attribute`/def/import, but
+`global x` / `nonlocal x` store their names as plain strings on `ast.Global`/`ast.Nonlocal`
+(not `ast.Name`), so those sites are silently skipped. A function that rebinds a symbol via
+`global` is part of that symbol's blast radius, yet `refs` doesn't report it — an undercount.
+**Why:** Same false-negative class as Cycle 2: a blast-radius tool that misses real references
+under-reports the risk of a change. Fix: add an `ast.Global`/`ast.Nonlocal` branch that emits a
+site (kind `global`/`nonlocal`) when the symbol is in `node.names`. Reproduced RED
+(global/nonlocal sites missing) before the fix.
+
+**Pinned-value change (justified, NOT a weakening):** `selftest_all.py`'s pin for
+`selftest_code_checks.py` goes `12/12` -> `14/14` — a *tightening* from two NEW regression
+assertions (global declaration counted; nonlocal declaration counted), proven RED on pre-fix
+code and GREEN after. No existing assertion or tolerance loosened. The `EXPECT_DEDUPE_REFS=4`
+pin is unchanged (the demo has no global/nonlocal of `dedupe_orders`).
+
+## Final result summary (Cycle 3)
+
+**Acceptance gate verdict: SHIP** (reviewed 2026-06-02 by acceptance_gate / claude-sonnet-4-6)
+
+All three checks held:
+- Task conformance: the bug (global/nonlocal sites silently missing from blast-radius report)
+  was real; fix is a targeted single branch addition that does not alter any other path.
+  The EXPECT_DEDUPE_REFS=4 pin is unchanged — correct, since the demo uses no global/nonlocal.
+- Claim-to-evidence: adversarial RED proof run directly: pre-fix code gave exit 1, 12/14 with
+  exactly the two new assertions failing (refs=2, kinds=['name','name'] for both x and y).
+  After `git stash pop`, GREEN: exit 0, 14/14. Pin bump 12->14 is pure tightening (0 prior
+  assertions deleted). EXPECT_DEDUPE_REFS=4 confirmed unchanged. No weakening found anywhere.
+- End-to-end soundness: `uv run python maw-tools/selftest_code_checks.py` -> ALL PASS 14/14;
+  `uv run python maw-tools/selftest_all.py` -> PASS 54/54 assertions held.

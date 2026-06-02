@@ -107,6 +107,15 @@ def cmd_refs(args: argparse.Namespace) -> int:
                         sites.append({"file": _rel(f), "line": node.lineno,
                                       "col": node.col_offset, "kind": "import"})
                 continue
+            elif isinstance(node, (ast.Global, ast.Nonlocal)):
+                # `global x` / `nonlocal x` keep their names as plain strings, not
+                # ast.Name children — so the walker would otherwise miss a function
+                # that rebinds the symbol, undercounting its blast radius.
+                if sym in node.names:
+                    sites.append({"file": _rel(f), "line": node.lineno,
+                                  "col": node.col_offset,
+                                  "kind": "global" if isinstance(node, ast.Global) else "nonlocal"})
+                continue
             if kind:
                 sites.append({"file": _rel(f), "line": getattr(node, "lineno", 0),
                               "col": getattr(node, "col_offset", 0), "kind": kind})

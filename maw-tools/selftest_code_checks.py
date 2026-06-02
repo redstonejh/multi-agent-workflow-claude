@@ -87,6 +87,25 @@ def main() -> int:
         record(scanned == 1 and got == EXPECT_FOO_REFS,
                "dotted/__pycache__ components BELOW the scan root are still skipped")
 
+        # --- regression: `global x` / `nonlocal x` rebind a symbol and belong in ---
+        # --- its blast radius, but their names are plain strings (not ast.Name), ---
+        # --- so the walker used to miss them and undercount. ---
+        gx = w(tmp, "globals_fixture.py",
+               "x = 0\n\n\n"
+               "def f():\n    global x\n    return x\n\n\n"
+               "def outer():\n    y = 1\n\n    def inner():\n        nonlocal y\n"
+               "        return y\n    return inner()\n")
+        code, data = run("refs", "--symbol", "x", gx)
+        kinds = [s["kind"] for s in data["sites"]] if data else []
+        record(code == 0 and data and data.get("ref_count") == 3 and "global" in kinds,
+               f"refs counts a `global x` declaration: refs={data and data.get('ref_count')}, "
+               f"kinds={kinds} (want 3 incl. 'global')")
+        code, data = run("refs", "--symbol", "y", gx)
+        kinds = [s["kind"] for s in data["sites"]] if data else []
+        record(code == 0 and data and data.get("ref_count") == 3 and "nonlocal" in kinds,
+               f"refs counts a `nonlocal y` declaration: refs={data and data.get('ref_count')}, "
+               f"kinds={kinds} (want 3 incl. 'nonlocal')")
+
         # --- syntax: clean compiles; syntax error and null byte both fail ---
         print("code_checks.py syntax:")
         good = w(tmp, "good.py", "def ok():\n    return 1\n")

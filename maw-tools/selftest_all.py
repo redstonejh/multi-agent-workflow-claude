@@ -131,8 +131,8 @@ def part_selftests() -> None:
     record(code == 0 and "21/21" in out and "ALL PASS" in out,
            f"selftest_ml_checks.py -> exit {code}, 21/21 (want exit 0)")
     code, out, _ = run(SELFTEST_CODE)
-    record(code == 0 and "12/12" in out and "ALL PASS" in out,
-           f"selftest_code_checks.py -> exit {code}, 12/12 (want exit 0)")
+    record(code == 0 and "14/14" in out and "ALL PASS" in out,
+           f"selftest_code_checks.py -> exit {code}, 14/14 (want exit 0)")
     code, out, _ = run(SELFTEST_SCAFFOLD)
     record(code == 0 and "16/16" in out and "ALL PASS" in out,
            f"selftest_scaffold.py -> exit {code}, 16/16 (want exit 0)")
