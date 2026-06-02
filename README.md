@@ -1,4 +1,4 @@
-# Multi-Agent Workflow
+# Claude Multi-Agent Workflow 
 
 **Turn a single Claude assistant into a coordinated, self-verifying team of specialist agents — planner, workers, critics, validators — that hand work off, check each other, and iterate until the result actually holds up, all on a Claude Code subscription with no per-token API cost.**
 
