@@ -1,0 +1,42 @@
+{
+  "chunk_even": [
+    [
+      1,
+      2
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      5,
+      6
+    ]
+  ],
+  "chunk_uneven": [
+    [
+      1,
+      2,
+      3
+    ],
+    [
+      4,
+      5
+    ]
+  ],
+  "flatten": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "format_cents_big": "$12.34",
+  "format_cents_neg": "-$0.07",
+  "format_cents_sub": "$0.05",
+  "gcd": 12,
+  "lcm": 12,
+  "parse_cents": 1234,
+  "shout": "HI THERE!",
+  "slugify": "hello-world-123"
+}

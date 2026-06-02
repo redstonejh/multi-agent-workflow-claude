@@ -32,11 +32,13 @@ ML_CHECKS = MAWTOOLS / "ml_checks.py"
 CODE_CHECKS = MAWTOOLS / "code_checks.py"
 WEB_CHECKS = MAWTOOLS / "web_checks.py"
 PLAN_CHECK = MAWTOOLS / "plan_check.py"
+REFACTOR_CHECKS = MAWTOOLS / "refactor_checks.py"
 SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
 SELFTEST_CODE = MAWTOOLS / "selftest_code_checks.py"
 SELFTEST_WEB = MAWTOOLS / "selftest_web_checks.py"
 SELFTEST_PLAN = MAWTOOLS / "selftest_plan_check.py"
+SELFTEST_REFACTOR = MAWTOOLS / "selftest_refactor_checks.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
 DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
@@ -74,6 +76,18 @@ PLAN_RUN = ROOT / "runs" / "2026-06-02_plan-gate_10b8"
 PLAN_V1 = PLAN_RUN / "artifacts" / "plan_v1.json"   # ML plan missing leakage_auditor
 PLAN_V2 = PLAN_RUN / "artifacts" / "plan_v2.json"   # corrected plan
 PLAN_MISSING_ROLE = "leakage_auditor"               # the required role v1 omits
+
+# --- Refactoring pack demo (examples/refactor_demo): bloated -> split, equivalence ---
+RC_DEMO = ROOT / "examples" / "refactor_demo"
+RC_HARNESS = RC_DEMO / "golden_harness.py"
+RC_BLOATED_FILE = RC_DEMO / "bloated" / "widgets.py"
+RC_BLOATED_DIR = RC_DEMO / "bloated"
+RC_SPLIT_PKG = RC_DEMO / "split" / "widgets"
+RC_SPLIT_DIR = RC_DEMO / "split"
+RC_BADSPLIT_DIR = RC_DEMO / "bad_split"
+RC_MODULE = "widgets"
+RC_MAX_LOC = 80      # demo budgets: bloated trips, each split module is under
+RC_MAX_DEFS = 5
 
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
 # --- changes, this block is the ONE place to update. Each has a one-line why.   ---
@@ -173,6 +187,9 @@ def part_selftests() -> None:
     code, out, _ = run(SELFTEST_PLAN)
     record(code == 0 and "16/16" in out and "ALL PASS" in out,
            f"selftest_plan_check.py -> exit {code}, 16/16 (want exit 0)")
+    code, out, _ = run(SELFTEST_REFACTOR)
+    record(code == 0 and "10/10" in out and "ALL PASS" in out,
+           f"selftest_refactor_checks.py -> exit {code}, 10/10 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
@@ -598,6 +615,64 @@ def part_plan_gate() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 8. Refactoring pack: bloated -> split, with the behavior-equivalence gate
+# --------------------------------------------------------------------------- #
+
+def part_refactor_pack() -> None:
+    section("8. Refactoring pack (examples/refactor_demo) - bloat trigger + equivalence gate")
+    if not RC_BLOATED_FILE.is_file() or not RC_SPLIT_PKG.is_dir():
+        record(False, f"refactor demo missing: {RC_DEMO}")
+        return
+
+    # bloat: the bloated module trips the budget; the split modules are all under it
+    code, data = run_json(REFACTOR_CHECKS, "bloat", RC_BLOATED_FILE,
+                          "--max-loc", RC_MAX_LOC, "--max-defs", RC_MAX_DEFS)
+    rep = (data["reports"][0] if data and data.get("reports") else {})
+    record(code == 1 and bool(data) and data.get("passed") is False
+           and "defs" in rep.get("exceeded", {}) and "loc" in rep.get("exceeded", {}),
+           f"bloat BLOATED -> exit {code}, exceeded={list(rep.get('exceeded', {}))} (want RED: loc+defs)")
+    code, data = run_json(REFACTOR_CHECKS, "bloat", "--root", RC_SPLIT_PKG,
+                          "--max-loc", RC_MAX_LOC, "--max-defs", RC_MAX_DEFS)
+    record(code == 0 and bool(data) and data.get("passed") is True,
+           f"bloat SPLIT ({data and data.get('files_scanned')} modules) -> exit {code} (want GREEN)")
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        # api: snapshot the bloated module's public surface, then compare the split
+        _, out, _ = run(REFACTOR_CHECKS, "api", "--module", RC_MODULE, "--src-dir", RC_BLOATED_DIR)
+        base = tmp / "before_api.json"
+        base.write_text(out, encoding="utf-8")
+        names = list(json.loads(out).get("api", {})) if out else []
+        record(len(names) == 8, f"api BLOATED surface has {len(names)} public names (want 8)")
+        code, data = run_json(REFACTOR_CHECKS, "api", "--module", RC_MODULE,
+                              "--src-dir", RC_SPLIT_DIR, "--baseline", base)
+        record(code == 0 and bool(data) and data.get("passed") is True
+               and not data.get("added") and not data.get("removed") and not data.get("changed"),
+               f"api SPLIT == BLOATED (identical surface) -> exit {code} (want GREEN/identical)")
+
+        # golden: snapshot the bloated outputs; split is byte-identical, bad_split is not
+        snap = tmp / "gold.json"
+        run(REFACTOR_CHECKS, "golden", "--harness", RC_HARNESS,
+            "--src-dir", RC_BLOATED_DIR, "--snapshot", snap)
+        code, data = run_json(REFACTOR_CHECKS, "golden", "--harness", RC_HARNESS,
+                              "--src-dir", RC_SPLIT_DIR, "--compare", snap)
+        record(code == 0 and bool(data) and data.get("passed") is True,
+               f"golden SPLIT byte-identical -> exit {code} (want GREEN: behavior preserved)")
+        code, data = run_json(REFACTOR_CHECKS, "golden", "--harness", RC_HARNESS,
+                              "--src-dir", RC_BADSPLIT_DIR, "--compare", snap)
+        record(code == 1 and bool(data) and data.get("passed") is False
+               and data.get("first_difference") is not None,
+               f"golden BAD_SPLIT differs -> exit {code}, "
+               f"first_diff={data and (data.get('first_difference') or {}).get('case')} (want RED: NO-SHIP)")
+
+        # api alone does NOT catch the bad split (signatures unchanged) — golden does.
+        code, data = run_json(REFACTOR_CHECKS, "api", "--module", RC_MODULE,
+                              "--src-dir", RC_BADSPLIT_DIR, "--baseline", base)
+        record(code == 0 and bool(data) and data.get("passed") is True,
+               f"api BAD_SPLIT still identical -> exit {code} (api can't see the behavior change; golden is the truth)")
+
+
+# --------------------------------------------------------------------------- #
 
 def main() -> int:
     print("=" * 70)
@@ -616,6 +691,7 @@ def main() -> int:
         part_frontend_pack()
         part_change_verify()
         part_plan_gate()
+        part_refactor_pack()
 
     passed = sum(1 for ok, _ in results if ok)
     total = len(results)

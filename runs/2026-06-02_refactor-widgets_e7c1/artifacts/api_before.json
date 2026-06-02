@@ -1,0 +1,39 @@
+{
+  "names_source": "__all__",
+  "api": {
+    "chunk": {
+      "kind": "callable",
+      "signature": "(xs, n)"
+    },
+    "flatten": {
+      "kind": "callable",
+      "signature": "(xss)"
+    },
+    "format_cents": {
+      "kind": "callable",
+      "signature": "(cents)"
+    },
+    "gcd": {
+      "kind": "callable",
+      "signature": "(a, b)"
+    },
+    "lcm": {
+      "kind": "callable",
+      "signature": "(a, b)"
+    },
+    "parse_cents": {
+      "kind": "callable",
+      "signature": "(s)"
+    },
+    "shout": {
+      "kind": "callable",
+      "signature": "(s)"
+    },
+    "slugify": {
+      "kind": "callable",
+      "signature": "(s)"
+    }
+  },
+  "api_sha256": "1d9a706a57b8e2d6fcd685f09499ad3136c54201773f505bce3c4b1d52a0fca6",
+  "module": "widgets"
+}

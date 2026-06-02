@@ -103,6 +103,16 @@ Tell the user: the result, where the run folder is, the plan-gate outcome (plan
 revisions + verdict), the critic score / iteration count, and the acceptance-gate
 verdict. Keep claims honest — only state what the run folder supports.
 
+**Advisory bloat nudge (code tasks only).** At the end of any task that wrote or
+grew Python, run the refactor-pack trigger as a *non-blocking* advisory:
+```bash
+uv run python maw-tools/refactor_checks.py bloat --root <changed path>
+```
+If a file is over budget, add one line to the report — e.g. *"heads-up:
+`widgets.py` is over budget (LOC/defs/branches) — want a behavior-preserving split?
+run `/maw refactor <path>`"* — and move on. It is a nudge, **never** a gate on the
+current task; do not block SHIP on it.
+
 ## Principles
 - **Conservative by default**, escalate on failure. Cheaper models for routine
   roles; conserve subscription usage.

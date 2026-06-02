@@ -23,9 +23,13 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > change was actually applied with no style drift**), eight roster agents, a
 > `/frontend` skill, and committed demos (six planted defects each caught then fixed;
 > a "make the button blue #1a73e8" change proven applied, with no-op + drift fixtures
-> caught as NO-SHIP). Every check is
+> caught as NO-SHIP). **A pre-execution plan gate** (`plan_check` + `plan_reviewer`)
+> now vets the team plan before any agent runs — symmetric to the acceptance gate —
+> and **a refactoring pack** (`refactor_checks.py`: bloat trigger + a behavior-
+> equivalence gate of tests + api + golden) splits bloated files only when the split
+> is provably behavior-preserving. Every check is
 > self-tested green-on-good / red-on-bad and the whole thing is pinned by a
-> self-validation harness (`selftest_all.py`, **PASS 79/79** — raw output in
+> self-validation harness (`selftest_all.py`, **PASS 87/87** — raw output in
 > [`selftest_output.txt`](selftest_output.txt)). A few deeper pieces (CV-fold
 > stability, the full robustness perturbation suite, the dependency-DAG scheduler,
 > front-end visual/pixel regression) remain design-only. See [What works today](#what-works-today-vs-whats-still-design).
@@ -98,6 +102,9 @@ A methodology pack for working on real codebases: reproduce-first bug finding, s
 
 ### Front-end / UI
 "Looks good to me" is exactly what ships inaccessible, broken, bloated pages. This pack makes the front-end bar a set of **deterministic, computed gates** — pure stdlib (`html.parser`, `re`), no browser, no npm — run by specialized auditors: **contrast** (the real WCAG 2.x ratio, pass ≥ 4.5 / 3.0 large), **a11y** (alt-less images, unlabeled controls, skipped heading levels, missing `lang`/`<title>`), **budget** (page bytes + element/request counts), **links** (every internal anchor/asset resolves), **markup** (unclosed tags, duplicate ids), and **responsive** (viewport meta + `@media` presence). It also **proves a requested change was actually applied**: **changed** (a no-op or wrong-target edit fails — "it better actually be changed"), **style** (the exact resolved value of a `selector { property }` for before/after), and **tokens** (scan CSS against a `design-tokens.json` and fail on any off-palette/off-grid value = style drift). A `ux_critic` adds an *advisory* aesthetic read and a `visual_verifier` documents before/after (driving Claude-in-Chrome where available) — both explicitly **not** hard gates. A page (or change) only ships once it clears every deterministic gate *and* an independent acceptance gate re-runs them on the files on disk. True visual/pixel-regression ("does it render right in a browser") needs a real browser and is `# MAW-TODO`. Run it with `/frontend <task>`; see the worked demos in [`examples/frontend_demo/`](examples/frontend_demo/) and [`examples/change_demo/`](examples/change_demo/).
+
+### Refactoring
+Splitting a bloated file is where "I just moved some functions around" silently changes behavior. This pack makes a refactor **provably behavior-preserving**. A `refactor_scout` runs a deterministic **bloat** metric (LOC, def/class count, longest-function LOC, branch count ≈ cyclomatic complexity, imports vs budgets) to find and rank over-large files, and proposes cohesive split boundaries by grouping functions that share symbols. A `refactorer` performs the split and preserves the public API. The split then passes through a **before/after equivalence gate** with hard NO-SHIP rules: it may ship only if, against the pre-refactor snapshot, **the test suite passes identically, the public API surface (`api`) is unchanged, AND golden outputs (`golden`) are byte-identical** — any difference reverts the refactor. (`golden` is the behavioral truth: it catches regressions the tests and the API surface both miss.) True cyclomatic complexity is approximated by branch count and deeper cohesion metrics are `# MAW-TODO`; the equivalence gate is the real guarantee. Run it with `/maw refactor <path>`; see [`examples/refactor_demo/`](examples/refactor_demo/).
 
 ## How you'd use it
 
@@ -179,6 +186,7 @@ uv run python maw-tools/selftest_ml_checks.py     # -> 21/21 assertions pass
 uv run python maw-tools/selftest_code_checks.py   # -> 10/10 assertions pass
 uv run python maw-tools/selftest_web_checks.py    # -> 27/27 assertions pass
 uv run python maw-tools/selftest_plan_check.py   # -> 16/16 assertions pass
+uv run python maw-tools/selftest_refactor_checks.py # -> 10/10 assertions pass
 ```
 
 ### Self-validation (run the framework against itself)
@@ -187,13 +195,14 @@ One command runs everything end-to-end and asserts **values, not just exit codes
 so a silent drift in the model, the examples, or the committed write-ups turns it red:
 
 ```bash
-uv run python maw-tools/selftest_all.py   # -> PASS 79/79 assertions held, exit 0
+uv run python maw-tools/selftest_all.py   # -> PASS 87/87 assertions held, exit 0
 ```
 
 It guarantees, in one pass:
 - all per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py`
   21/21, `selftest_code_checks.py` 10/10, `selftest_web_checks.py` 27/27,
-  `selftest_plan_check.py` 16/16);
+  `selftest_plan_check.py` 16/16,
+  `selftest_refactor_checks.py` 10/10);
 - the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
 - the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
   with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
@@ -220,6 +229,12 @@ It guarantees, in one pass:
   the violation naming the ml required-role rule**, and the corrected plan (with the
   role added) is **ACCEPTED (exit 0)** — a structurally-bad team is caught before any
   agent runs;
+- **the refactoring pack exercised** on `examples/refactor_demo` — `bloat` is **RED on
+  the bloated file (loc 110, defs 9) and GREEN on the split package**, the public `api`
+  surface is **identical pre/post the good split**, and `golden` is **GREEN on the good
+  split and RED on the bad split** (which still passes its tests and keeps an identical
+  API) — proving the split is behavior-preserving, and that golden catches what tests
+  and the API surface miss;
 - **claim-to-evidence (dogfooding):** the numbers the committed ML run folder
   ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
   claims are recomputed fresh and asserted to still match — the metrics JSON, the
@@ -370,14 +385,38 @@ and is marked as such:
   - A committed [worked demo](runs/2026-06-02_plan-gate_10b8/run.md): the conductor's
     first ML plan **omits the `leakage_auditor`** → `plan_check` exit 1 → conductor
     re-plans to add it → second plan exit 0 → execute.
+- The **refactoring pack — `refactor_checks.py` + 2 agents + the `/maw refactor` skill**:
+  - `maw-tools/refactor_checks.py` — deterministic, pure-stdlib (`ast`, `inspect`),
+    JSON out + exit 0/1: `bloat` (per-file LOC, def/class count, longest-function LOC,
+    branch count ≈ cyclomatic complexity (approx), imports vs configurable budgets;
+    flags + ranks offenders — the trigger), `api` (a module's public surface — names +
+    signatures — by import + introspection, so a flat module and a re-exporting package
+    compare identically; `--baseline` to diff + gate), and `golden` (run a harness,
+    snapshot outputs, `--compare` asserts byte-identical — the behavioral truth).
+  - `maw-tools/selftest_refactor_checks.py` — every subcommand asserted green-on-good /
+    red-on-bad on throwaway fixtures (**10/10**).
+  - **Two roster agents**: `refactor_scout` (haiku — runs `bloat`, ranks offenders,
+    proposes cohesive split boundaries by shared symbols) and `refactorer` (performs the
+    split, preserves the public API, runs the equivalence gate); the independent
+    `code_reviewer` / `acceptance_gate` re-run the gate before SHIP.
+  - The **`/maw refactor` skill** with a **hard behavior-equivalence gate**: a split
+    may SHIP only if, vs the pre-refactor snapshot, **tests pass identically AND `api`
+    is unchanged AND `golden` is byte-identical** — any difference reverts the refactor.
+    The `/maw` code flow also runs `bloat` as an **advisory** end-of-task nudge.
+  - A committed [worked demo](examples/refactor_demo/README.md): a bloated 110-LOC
+    `widgets.py` (8 functions, 4 clusters) is split into a cohesive package with the
+    API preserved — bloat clears and tests/api/golden stay identical → **SHIP**; a
+    **bad-split fixture** that silently drops `format_cents`'s zero-pad **passes the
+    tests and keeps an identical API**, but `golden` catches it (`-$0.07` → `-$0.7`) →
+    **NO-SHIP + revert**. Run: [`runs/2026-06-02_refactor-widgets_e7c1/`](runs/2026-06-02_refactor-widgets_e7c1/).
 - A **whole-framework self-validation harness**
   ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs all per-tool
   self-tests, reproduces all three worked examples, exercises the nine ML validators,
-  the code-work pack, the **front-end pack**, and the **pre-execution plan gate** on
-  the example artifacts, and
+  the code-work pack, the **front-end pack**, the **pre-execution plan gate**, and
+  the **refactoring pack** on the example artifacts, and
   **dogfoods the committed ML run folder** — recomputing the numbers it claims and
   asserting they still match (values, not just exit codes; incl. the pinned contrast
-  ratios, a11y before/after counts, and demo page byte budget). **PASS 79/79, exit 0**
+  ratios, a11y before/after counts, and demo page byte budget). **PASS 87/87, exit 0**
   — raw output committed in [`selftest_output.txt`](selftest_output.txt).
 
 **Still design-only (Phase 4+):**
