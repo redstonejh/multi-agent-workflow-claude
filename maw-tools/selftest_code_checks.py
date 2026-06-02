@@ -68,6 +68,25 @@ def main() -> int:
         expect(["refs", "--symbol", "foo", fx, "--expect", "99"], False,
                "refs --expect mismatch")
 
+        # --- regression: an explicitly-named DOTTED scan root must be scanned, ---
+        # --- not silently skipped (the old filter checked the root's own parts ---
+        # --- too, returning 0 files == a false "0 refs" blast radius). ---
+        dotted = tmp / ".hidden_root"
+        (dotted / "sub" / ".git").mkdir(parents=True)
+        (dotted / "mod.py").write_text(REFS_FIXTURE, encoding="utf-8")          # 4 foo sites
+        (dotted / "sub" / ".git" / "hook.py").write_text("foo = 1\n", encoding="utf-8")  # must stay skipped
+        code, data = run("refs", "--symbol", "foo", "--root", str(dotted),
+                         "--expect", str(EXPECT_FOO_REFS))
+        scanned = data.get("files_scanned") if data else None
+        got = data.get("ref_count") if data else None
+        record(code == 0 and scanned == 1 and got == EXPECT_FOO_REFS,
+               f"refs scans a dotted root: files={scanned}, refs={got} "
+               f"(want files=1, refs={EXPECT_FOO_REFS})")
+        # the .git/ dir BELOW the root is still excluded — else the foo=1 inside it
+        # would bump the count to 5 / files to 2.
+        record(scanned == 1 and got == EXPECT_FOO_REFS,
+               "dotted/__pycache__ components BELOW the scan root are still skipped")
+
         # --- syntax: clean compiles; syntax error and null byte both fail ---
         print("code_checks.py syntax:")
         good = w(tmp, "good.py", "def ok():\n    return 1\n")

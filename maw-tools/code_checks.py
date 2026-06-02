@@ -54,8 +54,16 @@ def _collect_py(files: list[str] | None, root: str | None) -> list[Path]:
     base = Path(root) if root else Path(".")
     out = []
     for p in sorted(base.rglob("*.py")):
-        parts = set(p.parts)
-        if "__pycache__" in parts or any(s.startswith(".") for s in p.parts):
+        # Filter dotted / __pycache__ components only BELOW the scan root. The root
+        # itself may legitimately be a dotted path the caller named on purpose
+        # (e.g. --root .claude); filtering the root's OWN parts silently returns
+        # zero files, which reads as a false "all clean" / "0 refs" — the exact
+        # false-negative this tool exists to prevent.
+        try:
+            rel_parts = p.relative_to(base).parts
+        except ValueError:
+            rel_parts = p.parts
+        if "__pycache__" in rel_parts or any(s.startswith(".") for s in rel_parts):
             continue
         out.append(p)
     return out
