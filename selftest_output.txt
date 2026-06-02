@@ -1,5 +1,5 @@
-### FINAL VERIFICATION — front-end pack added (branch feature/frontend-pack)
-### Tue Jun  2 10:17:09 PDT 2026
+### FINAL VERIFICATION — front-end change-verification + style-drift extension
+### Tue Jun  2 10:35:58 PDT 2026
 
 ===== uv run python maw-tools/selftest_web_checks.py =====
 web_checks.py contrast:
@@ -22,8 +22,24 @@ web_checks.py markup:
 web_checks.py responsive:
   [ok] viewport meta + @media present: exit 0, passed=True (want passed=True)
   [ok] missing viewport meta fails: exit 1, passed=False (want passed=False)
+web_checks.py style:
+  [ok] style resolves .btn background = #e0e0e0 (want #e0e0e0)
+  [ok] style --expect matches the resolved value: exit 0, passed=True (want passed=True)
+  [ok] style --expect mismatch fails: exit 1, passed=False (want passed=False)
+  [ok] style cascade: last declaration wins = #1a73e8 (want #1a73e8)
+web_checks.py changed:
+  [ok] REAL change (#e0e0e0 -> #1a73e8) passes: exit 0, passed=True (want passed=True)
+  [ok] NO-OP (value unchanged) fails: exit 1, passed=False (want passed=False)
+  [ok] WRONG-TARGET (changed but != expected) fails: exit 1, passed=False (want passed=False)
+  [ok] file mode: differs from snapshot passes: exit 0, passed=True (want passed=True)
+  [ok] file mode: byte-identical to snapshot fails: exit 1, passed=False (want passed=False)
+web_checks.py tokens:
+  [ok] on-palette CSS passes (no drift): exit 0, passed=True (want passed=True)
+  [ok] off-palette color flagged as drift: exit 1, passed=False (want passed=False)
+  [ok] off-token spacing flagged as drift: exit 1, passed=False (want passed=False)
+  [ok] off-token font flagged as drift: exit 1, passed=False (want passed=False)
 
-ALL PASS: 14/14 assertions held
+ALL PASS: 27/27 assertions held
 
 ===== uv run python maw-tools/selftest_all.py =====
 ======================================================================
@@ -34,7 +50,7 @@ selftest_all.py - framework self-validation (asserts VALUES)
   [ok] selftest_checks.py -> exit 0, 4/4 (want exit 0)
   [ok] selftest_ml_checks.py -> exit 0, 21/21 (want exit 0)
   [ok] selftest_code_checks.py -> exit 0, 10/10 (want exit 0)
-  [ok] selftest_web_checks.py -> exit 0, 14/14 (want exit 0)
+  [ok] selftest_web_checks.py -> exit 0, 27/27 (want exit 0)
 
 2. Code example (examples/sample_app) through checks.py test
   [ok] test_textutil.py via gate -> gate-exit 0, passed=True, inner-exit 0 (want passed=true, exit 0)
@@ -112,6 +128,14 @@ selftest_all.py - framework self-validation (asserts VALUES)
   [ok] responsive BEFORE (no viewport) -> exit 1 (want 1)
   [ok] responsive AFTER (viewport + @media) -> exit 0 (want 0)
 
+6. Change-verification + style-drift (examples/change_demo)
+  [ok] style BEFORE .btn background = #e0e0e0 (want #e0e0e0)
+  [ok] style AFTER .btn background = #1a73e8 (want #1a73e8)
+  [ok] changed REAL edit -> exit 0, passed=True (want 0/True)
+  [ok] changed NO-OP -> exit 1, changed=False (want 1/False)
+  [ok] tokens AFTER (on palette) -> exit 0, drift=0 (want 0/0)
+  [ok] tokens DRIFT (off palette) -> exit 1, drift=1 (want 1/>=1)
+
 ======================================================================
-PASS 68/68 assertions held
+PASS 74/74 assertions held
 ======================================================================

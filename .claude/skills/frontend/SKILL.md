@@ -26,7 +26,10 @@ If `python` is not on PATH, use `uv run python` for every `maw-tools/` command
   | `responsive_checker` | `responsive` | viewport meta + `@media` presence |
   | `perf_budgeter` | `budget` | page-weight + element/request budget |
   | `markup_validator` | `markup` + `links` | well-formedness + internal links |
+  | `change_verifier` | `changed` + `style` | the requested change is provably applied |
+  | `style_drift_auditor` | `tokens` | no off-palette / off-token style drift |
   | `ux_critic` | (rubric) | **advisory only** — not a hard gate |
+  | `visual_verifier` | (Chrome, if available) | **advisory only** — pixel diff is # MAW-TODO |
 
   **Conservative by default:** start with the gates the task needs (almost always
   `a11y_auditor` + `markup_validator`) and add the others as warranted. The roster
@@ -48,11 +51,22 @@ PASS requires ALL applicable gates (each = the named web_checks.py subcommand ex
   [ ] markup:     no unclosed/mismatched tags, no duplicate ids
   [ ] budget:     total bytes / elements / requests within budget
   [ ] responsive: viewport meta present AND >= 1 @media query (PRESENCE only)
+  [ ] change:     IF a specific change was requested — it is demonstrably applied
+                  in the source (changed exit 0: changed AND matches the expected
+                  value; a no-op or wrong-target edit FAILS)
+  [ ] drift:      IF a design-tokens.json exists — no off-palette/off-token value
+                  was introduced (tokens exit 0)
 
-ADVISORY (NOT a gate): ux_critic's usability/aesthetic read.
+ADVISORY (NOT gates): ux_critic's usability/aesthetic read; visual_verifier's
+before/after screenshot comparison (model judgment — full screenshot-diff is # MAW-TODO).
 SCORE/ship ONLY if every applicable hard gate passes; otherwise FAIL + the named
 critique (which gate, which number, which element).
 ```
+
+When a UI **change** was requested, the bar is explicit: a run may only SHIP if the
+requested change is **demonstrably present in the source** (`change_verifier`) AND
+**no token drift was introduced** (`style_drift_auditor`). "I edited it" is not
+evidence; the `changed` gate's exit code is.
 
 Mark a gate **N/A** honestly when it genuinely doesn't apply (e.g. `responsive`
 for an intentionally fixed-width email template) rather than fabricating a pass.
@@ -72,6 +86,11 @@ for an intentionally fixed-width email template) rather than fabricating a pass.
    adding/removing auditors as the task warrants. Stay within governor caps
    (max_agents 5 — run auditors in sequence over the shared files). Justify each
    role in one line in `run.md`.
+   **When a specific UI change was requested** (e.g. "make the button blue and
+   larger"), add `change_verifier` and (if a `design-tokens.json` exists)
+   `style_drift_auditor`. The `change_verifier` must **snapshot the BEFORE value
+   first — before `ui_builder` edits** — so the change is provable; then it asserts
+   the edit landed. `visual_verifier` is optional + advisory.
 2. **Scaffold the run folder:**
    ```bash
    uv run python maw-tools/scaffold_run.py init "<task>" \
@@ -89,7 +108,10 @@ for an intentionally fixed-width email template) rather than fabricating a pass.
 5. **Acceptance gate (independent, terminal, once).** Delegate to
    `acceptance_gate`. It **re-runs every `web_checks.py` subcommand against the
    files on disk** (it does not trust the auditors' say-so) and confirms the final
-   report claims nothing the numbers don't support. SHIP only on genuine passes.
+   report claims nothing the numbers don't support. When a change was requested it
+   **independently re-runs `changed` (against the recorded before-value) and
+   `tokens`**, and only SHIPs if the requested change is demonstrably present AND no
+   drift was introduced. SHIP only on genuine passes.
 6. **Report**: result, run-folder path, which gates passed (with numbers), the
    gate verdict. Only state what the run folder's recorded numbers support; keep
    visual/aesthetic claims explicitly advisory.

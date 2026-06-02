@@ -57,6 +57,16 @@ EXPECT_BYTES_BEFORE   = 4742     # over-budget (inline blob) — fails the 3000 
 EXPECT_BYTES_AFTER    = 1838     # under the 3000-byte budget after the fix
 FE_BUDGET             = 3000     # the page byte budget the demo is checked against
 
+# --- Change-verification + style-drift demo (examples/change_demo) ---
+CHG_DEMO = ROOT / "examples" / "change_demo"
+CHG_TOKENS = CHG_DEMO / "design-tokens.json"
+CHG_BEFORE = CHG_DEMO / "before" / "button.css"
+CHG_AFTER = CHG_DEMO / "after" / "button.css"
+CHG_NOOP = CHG_DEMO / "noop" / "button.css"     # edit claimed but not applied
+CHG_DRIFT = CHG_DEMO / "drift" / "button.css"   # changed, but off-palette color
+EXPECT_STYLE_BEFORE = "#e0e0e0"   # .btn background before the requested change
+EXPECT_STYLE_AFTER  = "#1a73e8"   # .btn background after ("make it blue #1a73e8")
+
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
 # --- changes, this block is the ONE place to update. Each has a one-line why.   ---
 TOL = 0.005                # float tolerance for the seeded-but-exact-ish numbers
@@ -150,8 +160,8 @@ def part_selftests() -> None:
     record(code == 0 and "10/10" in out and "ALL PASS" in out,
            f"selftest_code_checks.py -> exit {code}, 10/10 (want exit 0)")
     code, out, _ = run(SELFTEST_WEB)
-    record(code == 0 and "14/14" in out and "ALL PASS" in out,
-           f"selftest_web_checks.py -> exit {code}, 14/14 (want exit 0)")
+    record(code == 0 and "27/27" in out and "ALL PASS" in out,
+           f"selftest_web_checks.py -> exit {code}, 27/27 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
@@ -499,6 +509,51 @@ def part_frontend_pack() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 6. Change-verification + style-drift: a requested UI change is PROVABLY applied
+# --------------------------------------------------------------------------- #
+
+def part_change_verify() -> None:
+    section("6. Change-verification + style-drift (examples/change_demo)")
+    if not CHG_AFTER.is_file():
+        record(False, f"change demo missing: {CHG_DEMO}")
+        return
+
+    # style: the exact before/after resolved values are pinned
+    code, data = run_json(WEB_CHECKS, "style", "--css", CHG_BEFORE,
+                          "--selector", ".btn", "--property", "background")
+    record(bool(data) and data.get("value") == EXPECT_STYLE_BEFORE,
+           f"style BEFORE .btn background = {data and data.get('value')} "
+           f"(want {EXPECT_STYLE_BEFORE})")
+    code, data = run_json(WEB_CHECKS, "style", "--css", CHG_AFTER,
+                          "--selector", ".btn", "--property", "background")
+    record(bool(data) and data.get("value") == EXPECT_STYLE_AFTER,
+           f"style AFTER .btn background = {data and data.get('value')} "
+           f"(want {EXPECT_STYLE_AFTER})")
+
+    # changed: GREEN on the real edit (#e0e0e0 -> #1a73e8, matches expected)
+    code, data = run_json(WEB_CHECKS, "changed", "--css", CHG_AFTER, "--selector", ".btn",
+                          "--property", "background", "--before", EXPECT_STYLE_BEFORE,
+                          "--expect", EXPECT_STYLE_AFTER)
+    record(code == 0 and bool(data) and data.get("passed") is True,
+           f"changed REAL edit -> exit {code}, passed={data and data.get('passed')} (want 0/True)")
+    # changed: RED on the no-op (claimed but not applied)
+    code, data = run_json(WEB_CHECKS, "changed", "--css", CHG_NOOP, "--selector", ".btn",
+                          "--property", "background", "--before", EXPECT_STYLE_BEFORE,
+                          "--expect", EXPECT_STYLE_AFTER)
+    record(code == 1 and bool(data) and data.get("passed") is False
+           and data.get("changed") is False,
+           f"changed NO-OP -> exit {code}, changed={data and data.get('changed')} (want 1/False)")
+
+    # tokens: GREEN on the on-palette fix, RED on the off-palette drift
+    code, data = run_json(WEB_CHECKS, "tokens", "--css", CHG_AFTER, "--tokens", CHG_TOKENS)
+    record(code == 0 and bool(data) and data.get("drift_count") == 0,
+           f"tokens AFTER (on palette) -> exit {code}, drift={data and data.get('drift_count')} (want 0/0)")
+    code, data = run_json(WEB_CHECKS, "tokens", "--css", CHG_DRIFT, "--tokens", CHG_TOKENS)
+    record(code == 1 and bool(data) and data.get("drift_count") >= 1,
+           f"tokens DRIFT (off palette) -> exit {code}, drift={data and data.get('drift_count')} (want 1/>=1)")
+
+
+# --------------------------------------------------------------------------- #
 
 def main() -> int:
     print("=" * 70)
@@ -515,6 +570,7 @@ def main() -> int:
         else:
             record(False, "ML example did not produce arrays - skipped claim-to-evidence")
         part_frontend_pack()
+        part_change_verify()
 
     passed = sum(1 for ok, _ in results if ok)
     total = len(results)

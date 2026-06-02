@@ -1,0 +1,12 @@
+/* DRIFT — the button DID change and got larger, but it was painted with an
+   off-palette blue (#2b7de9 is NOT in design-tokens.json). The `changed` gate
+   passes, but the `tokens` gate must catch the drift and exit non-zero -> NO-SHIP. */
+.btn {
+  background: #2b7de9;
+  color: #ffffff;
+  font-size: 1rem;
+  padding: 0.6rem 1.2rem;
+  font-family: system-ui, sans-serif;
+  border: 0;
+  border-radius: 6px;
+}

@@ -30,6 +30,12 @@ Subcommands
   responsive  Presence of a <meta name="viewport"> and at least one CSS @media
               query (a deterministic *presence* check; layout correctness is
               # MAW-TODO — needs a real browser).
+  style       Resolved value of a CSS `selector { property }` (last declaration
+              wins) so before/after can be compared exactly.
+  changed     Assert a value ACTUALLY changed vs a pre-change snapshot — a no-op
+              or wrong-target edit exits non-zero. The "it better be changed" gate.
+  tokens      Scan CSS against design-tokens.json (allowed colors/spacing/fonts)
+              and flag any off-palette value = style drift. Exit non-zero on drift.
 
 Every subcommand prints a JSON object with a boolean `passed` field and exits 0
 when `passed` is true, non-zero otherwise — so callers gate on `$?`. Usage /
@@ -44,6 +50,10 @@ Examples
   uv run python maw-tools/web_checks.py links --html page.html
   uv run python maw-tools/web_checks.py markup --html page.html
   uv run python maw-tools/web_checks.py responsive --html page.html --css style.css
+  uv run python maw-tools/web_checks.py style --css after.css --selector .btn --property background
+  uv run python maw-tools/web_checks.py changed --css after.css --selector .btn \
+      --property background --before "#e0e0e0" --expect "#1a73e8"
+  uv run python maw-tools/web_checks.py tokens --css after.css --tokens design-tokens.json
 """
 from __future__ import annotations
 
@@ -488,6 +498,218 @@ def cmd_responsive(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# CSS model — shared by style / changed / tokens (flat rule sets; @media # MAW-TODO)
+# --------------------------------------------------------------------------- #
+
+def _strip_css_comments(text: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+
+
+def _parse_css(text: str) -> list[tuple[list[str], list[tuple[str, str]]]]:
+    """Parse flat CSS into [(selectors, [(prop, value), ...]), ...].
+
+    Comments are stripped first. This handles flat rule sets — the simple
+    component CSS the framework's examples produce. Nested at-rules (@media,
+    @supports) are NOT decomposed; rules inside them are skipped rather than
+    mis-parsed. Full nested-at-rule support is # MAW-TODO.
+    """
+    text = _strip_css_comments(text)
+    rules: list[tuple[list[str], list[tuple[str, str]]]] = []
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
+        prelude = m.group(1).strip()
+        if prelude.startswith("@"):
+            continue  # at-rule prelude (e.g. `@media ...`) — body is nested, skip
+        selectors = [re.sub(r"\s+", " ", s.strip()) for s in prelude.split(",") if s.strip()]
+        decls: list[tuple[str, str]] = []
+        for d in m.group(2).split(";"):
+            if ":" in d:
+                prop, val = d.split(":", 1)
+                decls.append((prop.strip().lower(), val.strip()))
+        rules.append((selectors, decls))
+    return rules
+
+
+def _norm_value(v: str) -> str:
+    """Normalize a CSS value for exact comparison: lowercase, collapse spaces,
+    expand short hex (#abc -> #aabbcc), drop a trailing !important."""
+    v = re.sub(r"\s+", " ", v.strip().lower())
+    v = re.sub(r"\s*!important\s*$", "", v)
+
+    def _exp(m: re.Match) -> str:
+        h = m.group(1)
+        if len(h) in (3, 4):
+            h = "".join(c * 2 for c in h)
+        return "#" + h
+    return re.sub(r"#([0-9a-f]{3,8})\b", _exp, v)
+
+
+def _resolve_style(rules, selector: str, prop: str) -> str | None:
+    """The resolved value of `selector { prop }`: the LAST matching declaration
+    wins (CSS cascade, assuming equal specificity). None if never declared."""
+    target = re.sub(r"\s+", " ", selector.strip())
+    prop = prop.strip().lower()
+    found: str | None = None
+    for selectors, decls in rules:
+        if target in selectors:
+            for p, val in decls:
+                if p == prop:
+                    found = val
+    return found
+
+
+def _extract_colors(value: str) -> list[str]:
+    """Color literals in a declaration value: hex + rgb()/rgba()/hsl()/hsla()."""
+    out = re.findall(r"#[0-9a-fA-F]{3,8}\b", value)
+    out += re.findall(r"(?:rgba?|hsla?)\([^)]*\)", value, flags=re.IGNORECASE)
+    return out
+
+
+# spacing lives in these properties; values elsewhere (e.g. font-size) are not
+# treated as spacing tokens. `0` and `auto` are always allowed.
+_SPACING_PROPS = {
+    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "gap", "row-gap", "column-gap", "top", "right", "bottom", "left", "inset",
+}
+_LENGTH_RE = re.compile(r"\b\d*\.?\d+(?:px|rem|em|vh|vw|%)\b", re.IGNORECASE)
+
+
+# --------------------------------------------------------------------------- #
+# style — resolved value of a selector { property } (docs: front-end pack)
+# --------------------------------------------------------------------------- #
+
+def cmd_style(args: argparse.Namespace) -> int:
+    rules = _parse_css(Path(args.css).read_text(encoding="utf-8"))
+    value = _resolve_style(rules, args.selector, args.property)
+    found = value is not None
+    if args.expect is not None:
+        passed = found and _norm_value(value) == _norm_value(args.expect)
+    else:
+        passed = found
+    return _emit({
+        "check": "style",
+        "css": str(args.css),
+        "selector": args.selector,
+        "property": args.property,
+        "value": value,
+        "found": found,
+        "expected": args.expect,
+        "passed": passed,
+        "note": (f"{args.selector} {{ {args.property} }} = {value!r}"
+                 + ("" if args.expect is None
+                    else f" {'==' if passed else '!='} expected {args.expect!r}")
+                 if found else
+                 f"no resolved value for {args.selector} {{ {args.property} }}"),
+    }, passed)
+
+
+# --------------------------------------------------------------------------- #
+# changed — assert a value actually changed (the "it better be changed" gate)
+# --------------------------------------------------------------------------- #
+
+def cmd_changed(args: argparse.Namespace) -> int:
+    # Mode A: selector+property in CSS vs a --before value (and optional --expect)
+    if args.css:
+        if not (args.selector and args.property and args.before is not None):
+            print("error: CSS mode needs --selector, --property and --before",
+                  file=sys.stderr)
+            return 2
+        rules = _parse_css(Path(args.css).read_text(encoding="utf-8"))
+        current = _resolve_style(rules, args.selector, args.property)
+        found = current is not None
+        changed = found and _norm_value(current) != _norm_value(args.before)
+        matches = (args.expect is None) or (found and _norm_value(current) == _norm_value(args.expect))
+        passed = bool(found and changed and matches)
+        reason = ("value not found — cannot verify the change" if not found else
+                  f"NO-OP: {args.selector} {{ {args.property} }} still {current!r} "
+                  f"(== before)" if not changed else
+                  f"changed to {current!r} but expected {args.expect!r}" if not matches else
+                  f"{args.selector} {{ {args.property} }}: {args.before!r} -> {current!r}"
+                  + ("" if args.expect is None else f" (== expected {args.expect!r})"))
+        return _emit({
+            "check": "changed", "mode": "selector",
+            "css": str(args.css), "selector": args.selector, "property": args.property,
+            "before": args.before, "current": current, "expected": args.expect,
+            "changed": bool(changed), "matches_expected": bool(matches),
+            "passed": passed, "note": reason,
+        }, passed)
+
+    # Mode B: whole-file vs a pre-change snapshot file (optional --expect-contains)
+    if args.file:
+        if not args.snapshot:
+            print("error: file mode needs --snapshot", file=sys.stderr)
+            return 2
+        current = Path(args.file).read_text(encoding="utf-8")
+        before = Path(args.snapshot).read_text(encoding="utf-8")
+        changed = current != before
+        contains = (args.expect_contains is None) or (args.expect_contains in current)
+        passed = bool(changed and contains)
+        reason = ("NO-OP: file is byte-identical to the snapshot" if not changed else
+                  f"changed but does not contain {args.expect_contains!r}" if not contains else
+                  "file differs from snapshot"
+                  + ("" if args.expect_contains is None
+                     else f" and contains {args.expect_contains!r}"))
+        return _emit({
+            "check": "changed", "mode": "file",
+            "file": str(args.file), "snapshot": str(args.snapshot),
+            "changed": bool(changed), "contains_expected": bool(contains),
+            "expect_contains": args.expect_contains, "passed": passed, "note": reason,
+        }, passed)
+
+    print("error: provide either --css (selector mode) or --file (snapshot mode)",
+          file=sys.stderr)
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# tokens — design-token conformance / style-drift (docs: front-end pack)
+# --------------------------------------------------------------------------- #
+
+def cmd_tokens(args: argparse.Namespace) -> int:
+    spec = json.loads(Path(args.tokens).read_text(encoding="utf-8"))
+    rules = _parse_css(Path(args.css).read_text(encoding="utf-8"))
+
+    allowed_colors = {_norm_value(c) for c in spec.get("colors", [])}
+    allowed_spacing = {_norm_value(s) for s in spec.get("spacing", [])} | {"0", "auto"}
+    allowed_fonts = {f.strip().strip("'\"").lower() for f in spec.get("fonts", [])}
+
+    drift: list[dict] = []
+    for selectors, decls in rules:
+        sel = ", ".join(selectors)
+        for prop, value in decls:
+            if "colors" in spec:
+                for col in _extract_colors(value):
+                    if _norm_value(col) not in allowed_colors:
+                        drift.append({"category": "color", "selector": sel,
+                                      "property": prop, "value": col})
+            if "spacing" in spec and prop in _SPACING_PROPS:
+                for length in _LENGTH_RE.findall(value):
+                    if _norm_value(length) not in allowed_spacing:
+                        drift.append({"category": "spacing", "selector": sel,
+                                      "property": prop, "value": length})
+            if "fonts" in spec and prop == "font-family":
+                for fam in value.split(","):
+                    f = fam.strip().strip("'\"").lower()
+                    if f and f not in allowed_fonts:
+                        drift.append({"category": "font", "selector": sel,
+                                      "property": prop, "value": fam.strip()})
+
+    passed = len(drift) == 0
+    return _emit({
+        "check": "tokens",
+        "css": str(args.css),
+        "tokens": str(args.tokens),
+        "categories_checked": [c for c in ("colors", "spacing", "fonts") if c in spec],
+        "drift_count": len(drift),
+        "drift": drift,
+        "passed": passed,
+        "note": ("every scanned value is in the design-token set (no drift); "
+                 "note: var(--x) refs + complex shorthand are not decomposed (# MAW-TODO)"
+                 if passed else f"{len(drift)} off-palette value(s) — style drift"),
+    }, passed)
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -525,6 +747,29 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--html", required=True, help="path to the HTML file")
     pr.add_argument("--css", action="append", help="CSS file(s) to scan for @media (repeatable)")
     pr.set_defaults(func=cmd_responsive)
+
+    psy = sub.add_parser("style", help="resolved value of a CSS selector { property }")
+    psy.add_argument("--css", required=True, help="path to the CSS file")
+    psy.add_argument("--selector", required=True, help="selector, e.g. .btn")
+    psy.add_argument("--property", required=True, help="property, e.g. background")
+    psy.add_argument("--expect", default=None, help="assert the resolved value == this")
+    psy.set_defaults(func=cmd_style)
+
+    pch = sub.add_parser("changed", help="assert a value actually changed vs a pre-change snapshot")
+    pch.add_argument("--css", default=None, help="CSS file (selector mode)")
+    pch.add_argument("--selector", default=None, help="selector (selector mode)")
+    pch.add_argument("--property", default=None, help="property (selector mode)")
+    pch.add_argument("--before", default=None, help="the pre-change value (selector mode)")
+    pch.add_argument("--expect", default=None, help="assert it changed TO this (selector mode)")
+    pch.add_argument("--file", default=None, help="file to check (snapshot mode)")
+    pch.add_argument("--snapshot", default=None, help="pre-change snapshot file (snapshot mode)")
+    pch.add_argument("--expect-contains", default=None, help="assert the new file contains this (snapshot mode)")
+    pch.set_defaults(func=cmd_changed)
+
+    pt = sub.add_parser("tokens", help="design-token conformance / style-drift scan of a CSS file")
+    pt.add_argument("--css", required=True, help="path to the CSS file")
+    pt.add_argument("--tokens", required=True, help="design-tokens.json (allowed colors/spacing/fonts)")
+    pt.set_defaults(func=cmd_tokens)
     return p
 
 

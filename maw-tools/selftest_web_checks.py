@@ -144,6 +144,69 @@ def main() -> int:
         expect(["responsive", "--html", str(good)], True, "viewport meta + @media present")
         expect(["responsive", "--html", str(bad)], False, "missing viewport meta fails")
 
+        # ------------------------------------------------------------------ #
+        # change-verification + style-drift (the extension)
+        # ------------------------------------------------------------------ #
+        before_css = w(tmp, "before.css",
+                       ".btn { background: #e0e0e0; font-size: 0.75rem; }\n")
+        after_css = w(tmp, "after.css",
+                      ".btn { background: #1a73e8; font-size: 1rem; }\n")
+        # cascade: later declaration of the same property wins
+        cascade_css = w(tmp, "cascade.css",
+                        ".btn { background: #111111; }\n.btn { background: #1a73e8; }\n")
+        tokens_json = w(tmp, "tokens.json",
+                        '{"colors":["#1a73e8","#e0e0e0","#ffffff"],'
+                        ' "spacing":["0.5rem","1rem"], "fonts":["system-ui","sans-serif"]}')
+
+        # --- style: exact resolved value, --expect match/mismatch, cascade ---
+        print("web_checks.py style:")
+        code, data = run("style", "--css", str(before_css), "--selector", ".btn",
+                         "--property", "background")
+        record(code == 0 and data and data["value"] == "#e0e0e0",
+               f"style resolves .btn background = {data and data.get('value')} (want #e0e0e0)")
+        expect(["style", "--css", str(after_css), "--selector", ".btn",
+                "--property", "background", "--expect", "#1a73e8"], True,
+               "style --expect matches the resolved value")
+        expect(["style", "--css", str(after_css), "--selector", ".btn",
+                "--property", "background", "--expect", "#e0e0e0"], False,
+               "style --expect mismatch fails")
+        code, data = run("style", "--css", str(cascade_css), "--selector", ".btn",
+                         "--property", "background")
+        record(code == 0 and data and data["value"] == "#1a73e8",
+               f"style cascade: last declaration wins = {data and data.get('value')} (want #1a73e8)")
+
+        # --- changed: the "it better be changed" gate ---
+        print("web_checks.py changed:")
+        expect(["changed", "--css", str(after_css), "--selector", ".btn", "--property",
+                "background", "--before", "#e0e0e0", "--expect", "#1a73e8"], True,
+               "REAL change (#e0e0e0 -> #1a73e8) passes")
+        expect(["changed", "--css", str(before_css), "--selector", ".btn", "--property",
+                "background", "--before", "#e0e0e0", "--expect", "#1a73e8"], False,
+               "NO-OP (value unchanged) fails")
+        expect(["changed", "--css", str(after_css), "--selector", ".btn", "--property",
+                "background", "--before", "#e0e0e0", "--expect", "#999999"], False,
+               "WRONG-TARGET (changed but != expected) fails")
+        snap = w(tmp, "snap.txt", "v1\n")
+        moved = w(tmp, "moved.txt", "v2\n")
+        expect(["changed", "--file", str(moved), "--snapshot", str(snap)], True,
+               "file mode: differs from snapshot passes")
+        expect(["changed", "--file", str(snap), "--snapshot", str(snap)], False,
+               "file mode: byte-identical to snapshot fails")
+
+        # --- tokens: clean passes; color/spacing/font drift each fail ---
+        print("web_checks.py tokens:")
+        expect(["tokens", "--css", str(after_css), "--tokens", str(tokens_json)], True,
+               "on-palette CSS passes (no drift)")
+        drift_color = w(tmp, "drift_color.css", ".btn { background: #2b7de9; }\n")
+        expect(["tokens", "--css", str(drift_color), "--tokens", str(tokens_json)], False,
+               "off-palette color flagged as drift")
+        drift_space = w(tmp, "drift_space.css", ".btn { padding: 0.6rem; }\n")
+        expect(["tokens", "--css", str(drift_space), "--tokens", str(tokens_json)], False,
+               "off-token spacing flagged as drift")
+        drift_font = w(tmp, "drift_font.css", ".btn { font-family: Comic Sans MS; }\n")
+        expect(["tokens", "--css", str(drift_font), "--tokens", str(tokens_json)], False,
+               "off-token font flagged as drift")
+
     ok = all(r[0] for r in results)
     print(f"\n{'ALL PASS' if ok else 'FAILURES PRESENT'}: "
           f"{sum(1 for r in results if r[0])}/{len(results)} assertions held")

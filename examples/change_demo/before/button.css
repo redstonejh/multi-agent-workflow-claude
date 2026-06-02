@@ -1,0 +1,10 @@
+/* BEFORE — the primary button is a small grey button. */
+.btn {
+  background: #e0e0e0;
+  color: #202124;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  font-family: system-ui, sans-serif;
+  border: 0;
+  border-radius: 6px;
+}

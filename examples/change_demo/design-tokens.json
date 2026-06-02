@@ -1,0 +1,6 @@
+{
+  "_comment": "Allowed design tokens for the Acme button. Any CSS value outside these sets is style drift (web_checks.py tokens flags it).",
+  "colors": ["#1a73e8", "#1558b0", "#e0e0e0", "#ffffff", "#202124"],
+  "spacing": ["0.25rem", "0.5rem", "0.6rem", "0.75rem", "1rem", "1.2rem", "1.5rem", "2rem"],
+  "fonts": ["system-ui", "sans-serif"]
+}

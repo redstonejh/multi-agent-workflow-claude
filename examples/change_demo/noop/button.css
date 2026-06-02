@@ -1,0 +1,12 @@
+/* NO-OP — the agent CLAIMED it made the button blue and larger, but the edit was
+   never actually applied: this is byte-for-byte the BEFORE state. The `changed`
+   gate must catch this (current == before) and exit non-zero -> NO-SHIP. */
+.btn {
+  background: #e0e0e0;
+  color: #202124;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  font-family: system-ui, sans-serif;
+  border: 0;
+  border-radius: 6px;
+}
