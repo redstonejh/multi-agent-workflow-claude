@@ -29,11 +29,15 @@ ROOT = Path(__file__).resolve().parent.parent
 MAWTOOLS = ROOT / "maw-tools"
 CHECKS = MAWTOOLS / "checks.py"
 ML_CHECKS = MAWTOOLS / "ml_checks.py"
+CODE_CHECKS = MAWTOOLS / "code_checks.py"
 SELFTEST_CHECKS = MAWTOOLS / "selftest_checks.py"
 SELFTEST_ML = MAWTOOLS / "selftest_ml_checks.py"
+SELFTEST_CODE = MAWTOOLS / "selftest_code_checks.py"
 SAMPLE_APP = ROOT / "examples" / "sample_app"
 TRAIN = ROOT / "examples" / "ml_experiment" / "train.py"
 DATA = ROOT / "examples" / "ml_experiment" / "data.csv"
+DEMO = ROOT / "examples" / "coupling_demo"          # code-work pack demo
+EXPECT_DEDUPE_REFS = 4                               # refs sites for dedupe_orders
 RUN_DIR = ROOT / "runs" / "2026-06-01_ml-leakage-demo_81f1"
 
 # --- Expected values (seeded -> exact-ish). If the model/seed legitimately      ---
@@ -125,13 +129,16 @@ def part_selftests() -> None:
     code, out, _ = run(SELFTEST_ML)
     record(code == 0 and "21/21" in out and "ALL PASS" in out,
            f"selftest_ml_checks.py -> exit {code}, 21/21 (want exit 0)")
+    code, out, _ = run(SELFTEST_CODE)
+    record(code == 0 and "10/10" in out and "ALL PASS" in out,
+           f"selftest_code_checks.py -> exit {code}, 10/10 (want exit 0)")
 
 
 # --------------------------------------------------------------------------- #
 # 2. Reproduce the code example through the framework's test gate
 # --------------------------------------------------------------------------- #
 
-def part_code_example() -> None:
+def part_code_sample() -> None:
     section("2. Code example (examples/sample_app) through checks.py test")
     cmd = f'"{sys.executable}" test_textutil.py'
     code, data = run_json(CHECKS, "test", "--cmd", cmd, "--cwd", SAMPLE_APP)
@@ -285,6 +292,53 @@ def part_ml_example(tmp: Path) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# 3c. Code-work pack: the coupling demo (hidden dep + bug/RCA docs)
+# --------------------------------------------------------------------------- #
+
+def part_code_pack() -> None:
+    section("3c. Code-work pack (examples/coupling_demo)")
+    dup_case = ("o=[{'id':3},{'id':1},{'id':3},{'id':1},{'id':2}]; "
+                "from pipeline import process; print([x['id'] for x in process(o%s)])")
+
+    # regression test is RED on the buggy path (no pre-sort): duplicates survive
+    code, out, _ = run("-c", dup_case % ", apply_sort=False", cwd=DEMO)
+    record(code == 0 and out.strip() == "[3, 1, 3, 1, 2]",
+           f"BUG-002 reproduces RED (apply_sort=False) -> {out.strip()} (want [3, 1, 3, 1, 2])")
+    # ...and GREEN after the fix (default sorts first): all duplicates removed
+    code, out, _ = run("-c", dup_case % "", cwd=DEMO)
+    record(code == 0 and out.strip() == "[1, 2, 3]",
+           f"BUG-002 fixed GREEN (default) -> {out.strip()} (want [1, 2, 3])")
+
+    # the committed regression test passes through the code_checks test gate
+    code, data = run_json(CODE_CHECKS, "test", "--cmd", f'"{sys.executable}" test_orders.py',
+                          "--cwd", DEMO)
+    record(code == 0 and bool(data) and data.get("passed") is True,
+           f"test_orders.py via code_checks gate -> exit {code}, passed={data and data.get('passed')}")
+
+    # refs computes the blast radius of the coupled symbol
+    code, data = run_json(CODE_CHECKS, "refs", "--symbol", "dedupe_orders",
+                          "--root", DEMO, "--expect", EXPECT_DEDUPE_REFS)
+    record(code == 0 and bool(data) and data.get("ref_count") == EXPECT_DEDUPE_REFS,
+           f"refs dedupe_orders -> {data and data.get('ref_count')} sites (want {EXPECT_DEDUPE_REFS})")
+
+    # the demo tree compiles (no syntax / null-byte corruption)
+    code, _ = run_json(CODE_CHECKS, "syntax", "--root", DEMO)
+    record(code == 0, f"code_checks syntax on demo -> exit {code} (want 0)")
+
+    # the coupling is captured in BOTH places, linked by the D01 id
+    deps = (DEMO / "deps.md").read_text(encoding="utf-8")
+    record("## D01" in deps and "dedupe_orders" in deps, "deps.md has the D01 entry")
+    orders_src = (DEMO / "orders.py").read_text(encoding="utf-8")
+    pipeline_src = (DEMO / "pipeline.py").read_text(encoding="utf-8")
+    record("# MAW-DEP[D01]" in orders_src, "inline # MAW-DEP[D01] marker in orders.py")
+    record("# MAW-DEP[D01]" in pipeline_src, "inline # MAW-DEP[D01] marker in pipeline.py")
+
+    # the bug/RCA documentation system produced its artifacts
+    record((ROOT / "bugs" / "BUG-002-unsorted-dedupe.md").exists(), "bugs/BUG-002 report exists")
+    record((ROOT / "bugs" / "RCA-BUG-002-unsorted-dedupe.md").exists(), "bugs/RCA-BUG-002 exists")
+
+
+# --------------------------------------------------------------------------- #
 # 4. Claim-to-evidence: the committed run folder must still match reality
 # --------------------------------------------------------------------------- #
 
@@ -368,8 +422,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         part_selftests()
-        part_code_example()
+        part_code_sample()
         fresh = part_ml_example(tmp)
+        part_code_pack()
         if fresh:
             part_claim_to_evidence(fresh)
         else:

@@ -1,0 +1,36 @@
+{
+  "check": "refs",
+  "symbol": "dedupe_orders",
+  "files_scanned": 3,
+  "ref_count": 4,
+  "expected": 4,
+  "sites": [
+    {
+      "file": "orders.py",
+      "line": 20,
+      "col": 0,
+      "kind": "def"
+    },
+    {
+      "file": "pipeline.py",
+      "line": 14,
+      "col": 0,
+      "kind": "import"
+    },
+    {
+      "file": "pipeline.py",
+      "line": 24,
+      "col": 11,
+      "kind": "name"
+    },
+    {
+      "file": "pipeline.py",
+      "line": 33,
+      "col": 11,
+      "kind": "name"
+    }
+  ],
+  "parse_errors": [],
+  "passed": true,
+  "note": "4 reference site(s) \u2014 this is the blast radius of changing `dedupe_orders`"
+}

@@ -13,11 +13,16 @@ Instead of one model doing one pass, a *conductor* reads your task, assembles th
 > baseline, metrics, calibration, variance, reproducibility, data-quality,
 > robustness), an `/ml-experiment` skill that gates a run on all nine, and a
 > committed worked example where a planted data leak is caught (NO-SHIP) and fixed
-> (SHIP). Every check is self-tested green-on-clean / red-on-bad and the whole thing
-> is pinned by a self-validation harness (`selftest_all.py`, **PASS 42/42** — raw
-> output in [`selftest_output.txt`](selftest_output.txt)). The code pack and a few
-> deeper checks (CV-fold stability, the full robustness perturbation suite) remain
-> design-only. See [What works today](#what-works-today-vs-whats-still-design) below.
+> (SHIP). **The code-work pack (Phase 3.8) now works too** — seven roster agents,
+> the `code_checks.py` AST tools (`refs` blast-radius, `syntax`, `test`, `dupes`),
+> the inline `# MAW-DEP` + central `deps.md` hidden-dependency annotator and the
+> bug/RCA documentation system, with a committed coupling demo (a hidden precondition
+> + planted bug reproduced, traced, fixed, and annotated). Every check is self-tested
+> green-on-good / red-on-bad and the whole thing is pinned by a self-validation
+> harness (`selftest_all.py`, **PASS 53/53** — raw output in
+> [`selftest_output.txt`](selftest_output.txt)). A few deeper pieces (CV-fold
+> stability, the full robustness perturbation suite, the dependency-DAG scheduler)
+> remain design-only. See [What works today](#what-works-today-vs-whats-still-design).
 
 ---
 
@@ -153,32 +158,38 @@ known-bad fixtures, so a regression in the gate logic turns this red):
 python maw-tools/selftest_checks.py     # -> 4/4 assertions pass
 ```
 
-**Self-test the ML checks** (every check verified green-on-clean / red-on-bad):
+**Self-test the ML and code checks** (every check verified green-on-good / red-on-bad):
 
 ```bash
-uv run python maw-tools/selftest_ml_checks.py   # -> 21/21 assertions pass
+uv run python maw-tools/selftest_ml_checks.py     # -> 21/21 assertions pass
+uv run python maw-tools/selftest_code_checks.py   # -> 10/10 assertions pass
 ```
 
 ### Self-validation (run the framework against itself)
 
 One command runs everything end-to-end and asserts **values, not just exit codes** —
-so a silent drift in the model, the example, or the committed write-up turns it red:
+so a silent drift in the model, the examples, or the committed write-ups turns it red:
 
 ```bash
-uv run python maw-tools/selftest_all.py   # -> PASS 42/42 assertions held, exit 0
+uv run python maw-tools/selftest_all.py   # -> PASS 53/53 assertions held, exit 0
 ```
 
 It guarantees, in one pass:
-- both per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py` 21/21);
+- all per-tool self-tests pass (`selftest_checks.py` 4/4, `selftest_ml_checks.py`
+  21/21, `selftest_code_checks.py` 10/10);
 - the code example (`examples/sample_app`) still passes through the `checks.py test` gate;
 - the ML example reproduces its documented numbers — leaky run `train/test == 1.000`
   with the **leakage gate firing** (`shuffle` exit 1), honest run `test ≈ 0.783 /
   train ≈ 0.743` (seed 7) with the gap, baseline (gain ≈ 0.242, CI excludes 0) and
   calibration (ECE ≈ 0.064) gates passing;
-- **all nine validators exercised** on the example artifacts, pinning their values —
+- **all nine ML validators exercised** on the example artifacts, pinning their values —
   F1 ≈ 0.759, data sha256, class balance 0.5325, multi-seed mean ≈ 0.757 (variance
   gate), and the feature-dominance max `|corr|` ≈ 0.361 (robustness);
-- **claim-to-evidence (dogfooding):** the numbers the committed run folder
+- **the code-work pack exercised** on `examples/coupling_demo` — the regression test
+  is **RED before the fix and GREEN after** (`[3, 1, 3, 1, 2]` → `[1, 2, 3]`), `refs`
+  finds the **4** call sites of the coupled symbol, and the inline `# MAW-DEP[D01]`
+  markers + the `deps.md` entry + the BUG/RCA files all exist where claimed;
+- **claim-to-evidence (dogfooding):** the numbers the committed ML run folder
   ([`runs/2026-06-01_ml-leakage-demo_81f1/`](runs/2026-06-01_ml-leakage-demo_81f1/))
   claims are recomputed fresh and asserted to still match — the metrics JSON, the
   prose in `run.md`, and the on-disk prediction arrays (reproduced bit-for-bit).
@@ -243,13 +254,38 @@ and is marked as such:
     accuracy 1.000 vs 0.575 chance), the fix, and the honest model shipping
     (**SHIP**, 0.783 test vs 0.542 baseline, gain CI [0.133, 0.350], F1 0.759,
     ECE 0.064) — verified by an independent acceptance gate that re-ran every check.
+- The **full code-work pack (Phase 3.8,
+  [`docs/07`](docs/07-code-and-debugging.md)) — seven agents + AST tools**:
+  - `maw-tools/code_checks.py` — deterministic, pure-stdlib, JSON out, exit 0/1:
+    `refs` (AST-scan every file:line that references a symbol — the computed
+    blast radius behind hidden-dependency detection, with `--expect N` to pin it),
+    `syntax` (`compile()` each file; catches syntax errors **and** null-byte
+    corruption — see RCA-001), `test` (forwards to `checks.py`), and `dupes`
+    (structural clone function bodies; fuzzy near-dup is `# MAW-TODO`).
+  - `maw-tools/selftest_code_checks.py` — each subcommand asserted green-on-good /
+    red-on-bad (**10/10**).
+  - **Seven roster agents** (each runs its tool first, then interprets):
+    `repro_engineer`, `bug_hunter`, `debugger`, `rca_writer`, `fixer`, `dep_mapper`,
+    `code_reviewer` (the independent acceptance-gate reviewer for code).
+  - The **hidden-dependency annotator** — `dep_mapper` writes an inline
+    `# MAW-DEP[id]` marker above the coupled code **and** a central `deps.md` entry
+    (endpoints, type, risk, blast radius, where-annotated), linked by a stable id —
+    and the **bug/RCA documentation system** (`bugs/BUG-NNN.md` + the RCA template).
+  - A committed [worked example](examples/coupling_demo/README.md): a **hidden
+    coupling** (`dedupe_orders` silently requires pre-sorted input) + a **planted
+    bug**. The run
+    ([`runs/2026-06-02_coupling-demo_1e1e/`](runs/2026-06-02_coupling-demo_1e1e/))
+    reproduces the failure (`[3, 1, 3, 1, 2]`), files [`BUG-002`](bugs/BUG-002-unsorted-dedupe.md),
+    traces the root cause, annotates the coupling (`# MAW-DEP[D01]` + [`deps.md`](examples/coupling_demo/deps.md)),
+    writes the [RCA](bugs/RCA-BUG-002-unsorted-dedupe.md), fixes it with a regression
+    test (`[1, 2, 3]`), and ships on an **independent code review** that re-ran every
+    check itself.
 - A **whole-framework self-validation harness**
-  ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs both per-tool
-  self-tests, reproduces both worked examples, exercises **all nine validators** on
-  the example artifacts (pinning F1, the data hash, class balance, multi-seed mean,
-  feature-dominance), and **dogfoods the committed run folder** — recomputing the
-  numbers it claims and asserting they still match (values, not just exit codes).
-  **PASS 42/42, exit 0** — raw output committed in
+  ([`maw-tools/selftest_all.py`](maw-tools/selftest_all.py)): runs all per-tool
+  self-tests, reproduces all three worked examples, exercises the nine ML validators
+  and the code-work pack on the example artifacts, and **dogfoods the committed ML
+  run folder** — recomputing the numbers it claims and asserting they still match
+  (values, not just exit codes). **PASS 53/53, exit 0** — raw output committed in
   [`selftest_output.txt`](selftest_output.txt).
 
 **Still design-only (Phase 4+):**
@@ -258,11 +294,13 @@ and is marked as such:
   feature-dominance proxy (input-perturbation stability, counterfactual /
   distribution-shift / recent-period probes), and temporal/group leakage splitters.
   `# MAW-TODO`
-- The full **code & debugging roster** ([`docs/07`](docs/07-code-and-debugging.md)):
-  `repro_engineer`, `bug_hunter`, `debugger`, `dep_mapper`, etc., plus `deps.md`
-  tooling. `# MAW-TODO`
-- Dependency-aware **parallel scheduling** and the `route` / `debate` patterns —
-  the current conductor runs the team sequentially. `# MAW-TODO`
+- The **dependency-DAG scheduler** ([`docs/07 §1`](docs/07-code-and-debugging.md) /
+  [`docs/01`](docs/01-architecture.md)) — `code_checks.py refs` + `deps.md` make the
+  coupling graph that *would* feed it, but the current conductor runs code work
+  **sequentially**; safe concurrent scheduling over that graph, and fuzzy
+  near-duplicate detection in `dupes`, are not built. `# MAW-TODO`
+- The `route` / `debate` patterns — the current conductor runs the team sequentially.
+  `# MAW-TODO`
 - The `debug` workflow skill (the `ml-experiment` skill now works — see above) and
   Phase-5 polish (path-resolution for `maw-tools/`, retention/compaction). `# MAW-TODO`
 

@@ -1,0 +1,20 @@
+{
+  "check": "syntax",
+  "files_checked": 3,
+  "results": [
+    {
+      "file": "orders.py",
+      "ok": true
+    },
+    {
+      "file": "pipeline.py",
+      "ok": true
+    },
+    {
+      "file": "test_orders.py",
+      "ok": true
+    }
+  ],
+  "passed": true,
+  "note": "all target files compile (no syntax errors, no null bytes)"
+}

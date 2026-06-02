@@ -1,0 +1,11 @@
+{
+  "check": "test",
+  "command": "uv run python test_orders.py",
+  "cwd": ".",
+  "exit_code": 0,
+  "timed_out": false,
+  "passed": true,
+  "duration_sec": 0.133,
+  "stdout_tail": "PASS \u2014 all 4 tests passed\n",
+  "stderr_tail": ""
+}

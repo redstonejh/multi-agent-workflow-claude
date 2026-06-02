@@ -4,9 +4,11 @@
 # Ignore the CONTENTS of runs/ (not the dir itself) so a single demo run can be
 # re-included below — git cannot re-include inside a fully-excluded directory.
 runs/*
-# Exception: this one ML run is committed as the Phase-3.7 worked-example evidence
-# (docs/06). It is the demonstration that the leakage gate genuinely fires.
+# Exception: these worked-example runs are committed as evidence —
+#   the Phase-3.7 ML leakage demo (docs/06) and the Phase-3.8 code-coupling demo
+#   (docs/07). They demonstrate the gates genuinely firing.
 !runs/2026-06-01_ml-leakage-demo_81f1/
+!runs/2026-06-02_coupling-demo_1e1e/
 
 # The ML example's working artifacts are regenerable (uv run python train.py);
 # the committed evidence lives in the run folder above. data.csv IS committed
